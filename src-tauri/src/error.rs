@@ -7,6 +7,10 @@ pub enum AppError {
     SshNotFound(String),
     #[error("ssh 버전을 해석할 수 없습니다: {0}")]
     SshVersionUnparsable(String),
+    #[error("{0}")]
+    InvalidInput(String),
+    #[error("세션을 찾을 수 없습니다: {0}")]
+    SessionNotFound(String),
     #[error("내부 오류: {0}")]
     Internal(String),
 }

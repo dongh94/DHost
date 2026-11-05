@@ -1,0 +1,22 @@
+# DHost 로컬 테스트용 SSH 서버. 실서버 정보 아님.
+# 계정: dhost / 비밀번호: TEST_PASSWORD 값 (가상 테스트 값)
+services:
+  bastion:
+    build: .
+    environment:
+      TEST_PASSWORD: dhost-test-pw
+      HOSTNAME_LABEL: "DHost test bastion"
+    ports:
+      - "127.0.0.1:2222:22"
+    networks: [outer, inner]
+  target:
+    build: .
+    environment:
+      TEST_PASSWORD: dhost-test-pw
+      HOSTNAME_LABEL: "DHost test target (bastion 경유 전용)"
+    ports:
+      - "127.0.0.1:2223:22"
+    networks: [inner]
+networks:
+  outer: {}
+  inner: {}

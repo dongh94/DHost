@@ -1,50 +1,33 @@
 import { useEffect, useRef } from "react";
-import { Terminal } from "@xterm/xterm";
-import { FitAddon } from "@xterm/addon-fit";
+import { getTerminal } from "../lib/terminals";
 
-const themes = {
-  light: { background: "#ffffff", foreground: "#18181b", cursor: "#18181b" },
-  dark: { background: "#09090b", foreground: "#e4e4e7", cursor: "#e4e4e7" },
-};
-
-/**
- * 터미널 화면. 아직 SSH 세션과 연결되지 않았다.
- * 키 입력은 어디로도 전송하지 않는다.
- */
-export function TerminalView({ theme }: { theme: "light" | "dark" }) {
+/** 보관 중인 xterm 인스턴스를 화면에 붙인다. 언마운트해도 터미널은 유지된다. */
+export function TerminalView({ termKey, active }: { termKey: string; active: boolean }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const termRef = useRef<Terminal | null>(null);
 
   useEffect(() => {
-    if (!containerRef.current) return;
-    const term = new Terminal({
-      fontFamily: "Menlo, 'D2Coding', monospace",
-      fontSize: 13,
-      cursorBlink: true,
-      theme: themes[theme],
+    const entry = getTerminal(termKey);
+    const container = containerRef.current;
+    if (!entry || !container) return;
+    if (entry.el.parentElement !== container) container.appendChild(entry.el);
+    if (!entry.opened) {
+      entry.term.open(entry.el);
+      entry.opened = true;
+    }
+    const observer = new ResizeObserver(() => {
+      if (container.offsetParent !== null) entry.fit.fit();
     });
-    const fit = new FitAddon();
-    term.loadAddon(fit);
-    term.open(containerRef.current);
-    fit.fit();
-    term.writeln("DHost 터미널 (연결 없음)");
-    term.writeln("왼쪽에서 서버를 선택하면 여기에서 SSH 세션이 열립니다.");
-    termRef.current = term;
-
-    const observer = new ResizeObserver(() => fit.fit());
-    observer.observe(containerRef.current);
-    return () => {
-      observer.disconnect();
-      term.dispose();
-      termRef.current = null;
-    };
-    // 테마 변경은 아래 effect에서 처리해 터미널을 다시 만들지 않는다 (세션 유지).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [termKey]);
 
   useEffect(() => {
-    if (termRef.current) termRef.current.options.theme = themes[theme];
-  }, [theme]);
+    if (!active) return;
+    const entry = getTerminal(termKey);
+    if (!entry) return;
+    entry.fit.fit();
+    entry.term.focus();
+  }, [active, termKey]);
 
-  return <div ref={containerRef} className="h-full w-full p-2" />;
+  return <div ref={containerRef} className={`h-full w-full p-2 ${active ? "" : "hidden"}`} />;
 }
