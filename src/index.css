@@ -1,0 +1,16 @@
+@import "tailwindcss";
+@import "@xterm/xterm/css/xterm.css";
+
+/* 다크 모드는 <html class="dark">로 제어한다 (시스템 연동 + 수동 변경, PRD POL-03) */
+@custom-variant dark (&:where(.dark, .dark *));
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Pretendard", sans-serif;
+}

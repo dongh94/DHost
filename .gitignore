@@ -1,0 +1,40 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Rust
+/src-tauri/target
+
+# 비밀정보·실서버 정보 커밋 방지 (PRD SEC-P07)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.ppk
+id_rsa*
+id_ed25519*
+id_ecdsa*
+known_hosts*
+*.dhost-backup
