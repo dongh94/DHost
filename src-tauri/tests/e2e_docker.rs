@@ -696,3 +696,242 @@ fn flow_control_pauses_output_and_keeps_input() {
         std::thread::sleep(Duration::from_millis(50));
     }
 }
+
+// ---- 사전 테스트 기록(docs/test-record.md)용 ----
+
+type Out = Arc<Mutex<Vec<u8>>>;
+
+/// 세션을 열고 셸 프롬프트가 뜰 때까지 기다린다.
+fn open_shell(h: &Harness, req: ConnectRequest) -> (String, Out) {
+    let out: Out = Arc::new(Mutex::new(Vec::new()));
+    let o = out.clone();
+    let id = h
+        .sessions
+        .open(
+            &OpenSshEngine::new(),
+            h.broker.clone(),
+            req,
+            SessionLabel {
+                title: "t".into(),
+                ..Default::default()
+            },
+            (120, 40),
+            Box::new(move |b| {
+                o.lock().unwrap().extend_from_slice(b);
+                true
+            }),
+        )
+        .unwrap();
+    wait_out(&out, "$ ");
+    (id, out)
+}
+
+fn wait_out(out: &Out, needle: &str) {
+    let start = Instant::now();
+    while !String::from_utf8_lossy(&out.lock().unwrap()).contains(needle) {
+        assert!(start.elapsed() < Duration::from_secs(20), "{needle:?} 대기 시간 초과");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+fn wait_exit(h: &Harness, id: &str) -> Option<u32> {
+    let start = Instant::now();
+    loop {
+        if let Some(code) = h.exit_code(id) {
+            return code;
+        }
+        assert!(start.elapsed() < Duration::from_secs(10), "종료 이벤트가 오지 않음");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+fn direct() -> ConnectRequest {
+    ConnectRequest {
+        target: bastion(),
+        jump: None,
+        connect_timeout: None,
+    }
+}
+
+/// 이 테스트 바이너리(DHost 도우미)를 KnownHostsCommand로 쓰는 ssh 프로세스 수
+fn our_ssh_processes() -> usize {
+    let exe = env!("CARGO_BIN_EXE_dhost");
+    let ps = std::process::Command::new("ps")
+        .args(["-axo", "command="])
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&ps.stdout)
+        .lines()
+        .filter(|l| l.starts_with("/usr/bin/ssh ") && l.contains(exe))
+        .count()
+}
+
+fn open_fds() -> usize {
+    std::fs::read_dir("/dev/fd").map(|d| d.count()).unwrap_or(0)
+}
+
+/// TEST-07: 비밀번호 없이 SSH Agent의 키로 인증한다. 키는 테스트 중에만 만들고 지운다.
+#[test]
+#[ignore]
+fn agent_key_auth_without_password() {
+    use std::process::{Command, Stdio};
+    // temp_store()가 쓰는 폴더와 겹치지 않게 이름을 따로 둔다.
+    let dir = std::env::temp_dir().join(format!("dhost-e2e-{}-sshagent", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let key = dir.join("k");
+    let sock = dir.join("agent.sock");
+    assert!(
+        Command::new("ssh-keygen")
+            .args(["-q", "-t", "ed25519", "-N", "", "-C", "dhost-e2e", "-f"])
+            .arg(&key)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let pubkey = std::fs::read_to_string(dir.join("k.pub")).unwrap();
+    let compose = concat!(env!("CARGO_MANIFEST_DIR"), "/../dev/test-env/docker-compose.yml");
+    let docker = |script: &str, input: Option<&str>| {
+        let mut c = Command::new("docker")
+            .args(["compose", "-f", compose, "exec", "-T", "bastion", "sh", "-c", script])
+            .stdin(Stdio::piped())
+            .spawn()
+            .unwrap();
+        if let Some(i) = input {
+            use std::io::Write;
+            c.stdin.take().unwrap().write_all(i.as_bytes()).unwrap();
+        }
+        drop(c.stdin.take());
+        assert!(c.wait().unwrap().success(), "docker exec 실패: {script}");
+    };
+    docker(
+        "mkdir -p /home/dhost/.ssh && cat >> /home/dhost/.ssh/authorized_keys && chown -R dhost /home/dhost/.ssh && chmod 700 /home/dhost/.ssh && chmod 600 /home/dhost/.ssh/authorized_keys",
+        Some(&pubkey),
+    );
+
+    let mut agent = Command::new("ssh-agent")
+        .arg("-D")
+        .arg("-a")
+        .arg(&sock)
+        .stdout(Stdio::null())
+        .spawn()
+        .unwrap();
+    let start = Instant::now();
+    while !sock.exists() {
+        assert!(start.elapsed() < Duration::from_secs(5), "ssh-agent가 뜨지 않음");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(
+        Command::new("ssh-add")
+            .arg("-q")
+            .arg(&key)
+            .env("SSH_AUTH_SOCK", &sock)
+            .status()
+            .unwrap()
+            .success()
+    );
+
+    let old = std::env::var_os("SSH_AUTH_SOCK");
+    // SAFETY: E2E는 --test-threads=1로 돈다. 이 테스트 동안만 바꾸고 되돌린다.
+    unsafe { std::env::set_var("SSH_AUTH_SOCK", &sock) };
+    let h = Harness::new(temp_store("agent"), HostKeyPolicy::Trust);
+    // 비밀번호를 물으면 취소한다: 키 인증이 아니면 접속이 실패해야 한다.
+    *h.sink.askpass.lock().unwrap() = AskpassPolicy::Cancel;
+    let (out, code) = h.run(direct(), Some("echo AGENT-OK-$((20+1)); exit"));
+    let prompts = askpass_prompts(&h);
+    unsafe {
+        match old {
+            Some(v) => std::env::set_var("SSH_AUTH_SOCK", v),
+            None => std::env::remove_var("SSH_AUTH_SOCK"),
+        }
+    }
+    let _ = agent.kill();
+    let _ = agent.wait();
+    docker("sed -i '/dhost-e2e/d' /home/dhost/.ssh/authorized_keys", None);
+    let _ = std::fs::remove_dir_all(&dir);
+
+    assert_eq!(code, Some(0), "출력: {out:?}");
+    assert!(out.contains("AGENT-OK-21"), "출력: {out:?}");
+    assert!(
+        prompts.iter().all(|p| !p.prompt.contains("password")),
+        "키 인증이면 비밀번호를 묻지 않아야 한다: {:?}",
+        prompts.iter().map(|p| &p.prompt).collect::<Vec<_>>()
+    );
+}
+
+/// TEST-09: 여러 세션 중 하나가 끊겨도 다른 세션은 유지되고, 끊긴 세션은 저절로 다시 붙지 않는다.
+#[test]
+#[ignore]
+fn one_session_drop_keeps_others_and_no_auto_reconnect() {
+    let h = Harness::new(temp_store("multi"), HostKeyPolicy::Trust);
+    let (a, _out_a) = open_shell(&h, direct());
+    let (b, out_b) = open_shell(&h, direct());
+    let (c, out_c) = open_shell(&h, direct());
+
+    // A의 원격 sshd 세션 프로세스를 죽여 서버 쪽에서 끊긴 상황을 만든다.
+    h.sessions.write(&a, b"kill -9 $PPID\n").unwrap();
+    assert_eq!(wait_exit(&h, &a), Some(255), "서버 쪽 끊김은 ssh 오류(255)로 끝난다");
+
+    for (id, out, tag) in [(&b, &out_b, "B"), (&c, &out_c, "C")] {
+        h.sessions
+            .write(id, format!("echo ALIVE-{tag}-$((1+1))\n").as_bytes())
+            .unwrap();
+        wait_out(out, &format!("ALIVE-{tag}-2"));
+        assert!(h.exit_code(id).is_none(), "{tag} 세션은 살아 있어야 한다");
+    }
+
+    // 자동 재접속 없음: 잠시 기다려도 새 접속 시도(호스트 키 확인·세션 종료 이벤트)가 늘지 않는다.
+    let before = h.sink.events.lock().unwrap().len();
+    std::thread::sleep(Duration::from_secs(3));
+    assert_eq!(
+        h.sink.events.lock().unwrap().len(),
+        before,
+        "사용자 요청 없이 다시 접속하면 안 된다"
+    );
+
+    // 사용자가 재접속하면 새 세션으로 붙는다.
+    let (a2, out_a2) = open_shell(&h, direct());
+    h.sessions.write(&a2, b"echo BACK-$((3+4))\n").unwrap();
+    wait_out(&out_a2, "BACK-7");
+
+    for id in [&b, &c, &a2] {
+        h.sessions.close(id).unwrap();
+        wait_exit(&h, id);
+    }
+}
+
+/// TEST-14: 접속·종료를 반복해도 ssh 프로세스와 파일 핸들이 남지 않는다.
+#[test]
+#[ignore]
+fn repeated_connect_close_leaks_nothing() {
+    let h = Harness::new(temp_store("repeat"), HostKeyPolicy::Trust);
+    // 첫 접속에서 호스트 키 승인·소켓 생성 등 한 번만 생기는 자원을 만든다.
+    let (id, _) = open_shell(&h, direct());
+    h.sessions.close(&id).unwrap();
+    wait_exit(&h, &id);
+    std::thread::sleep(Duration::from_millis(300));
+    let fds_before = open_fds();
+    let procs_before = our_ssh_processes();
+
+    for i in 0..20 {
+        let (id, out) = open_shell(&h, direct());
+        h.sessions
+            .write(&id, format!("echo LOOP-{i}-$((i=1))\n").as_bytes())
+            .unwrap();
+        wait_out(&out, &format!("LOOP-{i}-1"));
+        if i % 2 == 0 {
+            h.sessions.close(&id).unwrap(); // 사용자가 탭을 닫음
+        } else {
+            h.sessions.write(&id, b"exit\n").unwrap(); // 원격에서 정상 종료
+        }
+        wait_exit(&h, &id);
+    }
+    std::thread::sleep(Duration::from_millis(500));
+
+    assert_eq!(our_ssh_processes(), procs_before, "남은 ssh 프로세스가 없어야 한다");
+    let fds_after = open_fds();
+    assert!(
+        fds_after <= fds_before + 4,
+        "파일 핸들이 늘었다: {fds_before} → {fds_after}"
+    );
+}

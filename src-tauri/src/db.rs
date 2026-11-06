@@ -90,6 +90,8 @@ impl Db {
     pub fn open(path: &Path) -> AppResult<Arc<Self>> {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir).map_err(|e| AppError::Internal(e.to_string()))?;
+            // 데이터 폴더도 본인만 열 수 있게 한다 (TEST-11 점검에서 0755였음).
+            let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
         }
         let conn = Connection::open(path)?;
         // 서버 주소도 민감할 수 있으므로 본인만 읽을 수 있게 한다.
@@ -139,5 +141,23 @@ impl From<rusqlite::Error> for AppError {
             }
         }
         AppError::Internal(format!("저장소 오류: {e}"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    /// TEST-11: 저장 파일과 폴더는 본인만 읽을 수 있다.
+    #[test]
+    fn data_dir_and_db_are_private() {
+        let dir = std::env::temp_dir().join(format!("dhost-perm-{}", uuid::Uuid::new_v4()));
+        let db = dir.join("dhost.db");
+        Db::open(&db).unwrap();
+        let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&dir), 0o700);
+        assert_eq!(mode(&db), 0o600);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

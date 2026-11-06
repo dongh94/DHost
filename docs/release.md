@@ -17,7 +17,7 @@ Docker E2E는 macOS 러너에 Docker가 없어 CI에서 돌리지 않는다. 아
    docker compose -f dev/test-env/docker-compose.yml up -d --build
    cd src-tauri && cargo test --test e2e_docker -- --ignored --test-threads=1
    ```
-2. 사전 테스트 기록(TEST-01~14)을 갱신한다.
+2. [사전 테스트 기록](test-record.md)(TEST-01~14)을 갱신한다. 특히 맨 아래 수동 확인 목록.
 3. `main`의 CI가 모두 통과했는지 확인한다.
 
 ## 배포

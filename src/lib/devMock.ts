@@ -122,7 +122,9 @@ export function installDevMock() {
           const ch = a.onOutput as { onmessage?: (m: unknown) => void } | undefined;
           const demo =
             "Welcome (mock)\r\n문서: https://docs.example.com/guide\r\n" +
-            "\x1b]8;;https://evil.example.net/login\x07https://bank.example.com\x1b]8;;\x07 ← 속이는 링크\r\n$ ";
+            "\x1b]8;;https://evil.example.net/login\x07https://bank.example.com\x1b]8;;\x07 ← 속이는 링크\r\n" +
+            // OSC 52 클립보드 쓰기 시도 (TEST-12: 무시되어야 함)
+            "\x1b]52;c;REhPU1QtQ0xJUEJPQVJELVRFU1Q=\x07\x1b]0;가짜 창 제목\x07$ ";
           setTimeout(() => ch?.onmessage?.(Array.from(new TextEncoder().encode(demo))), 50);
           // 세션 ID를 예측할 수 있게 한다 (예: mock-s2)
           return `mock-${a.serverId}`;
