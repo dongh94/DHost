@@ -7,6 +7,7 @@ pub mod hostkeys;
 pub mod ipc;
 pub mod profiles;
 pub mod session;
+pub mod settings;
 pub mod ssh;
 
 use std::sync::Arc;
@@ -74,6 +75,9 @@ pub fn run() {
             commands::server_connect,
             commands::hostkey_list,
             commands::hostkey_delete,
+            commands::settings_get,
+            commands::settings_set,
+            commands::settings_reset,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

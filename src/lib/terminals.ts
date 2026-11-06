@@ -19,10 +19,10 @@ export const termThemes = {
   dark: { background: "#09090b", foreground: "#e4e4e7", cursor: "#e4e4e7", selectionBackground: "#3f3f46" },
 };
 
-export function createTerminal(key: string, theme: "light" | "dark"): TermEntry {
+export function createTerminal(key: string, theme: "light" | "dark", fontSize = 13): TermEntry {
   const term = new Terminal({
     fontFamily: "Menlo, 'D2Coding', monospace",
-    fontSize: 13,
+    fontSize,
     cursorBlink: true,
     scrollback: 5000,
     theme: termThemes[theme],
@@ -48,4 +48,11 @@ export function disposeTerminal(key: string) {
 
 export function setAllThemes(theme: "light" | "dark") {
   for (const e of registry.values()) e.term.options.theme = termThemes[theme];
+}
+
+export function setAllFontSizes(fontSize: number) {
+  for (const e of registry.values()) {
+    e.term.options.fontSize = fontSize;
+    if (e.opened && e.el.offsetParent !== null) e.fit.fit();
+  }
 }

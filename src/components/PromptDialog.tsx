@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { api } from "../lib/api";
 import { useSessions } from "../stores/sessions";
+import { PasteDialog } from "./PasteDialog";
 
 const btn = "rounded-md px-3 py-1.5 text-sm font-medium";
 const btnGhost = `${btn} border border-line bg-surface text-fg hover:bg-muted`;
@@ -45,6 +46,10 @@ export function PromptDialog() {
   }, [prompt]);
 
   if (!prompt) return null;
+
+  if (prompt.kind === "paste") {
+    return <PasteDialog key={prompt.data.tabKey + prompt.data.text.length} {...prompt.data} onDone={shift} />;
+  }
 
   if (prompt.kind === "hostkey") {
     const p = prompt.data;

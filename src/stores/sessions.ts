@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { AskpassPrompt, ConnectRequest, HostKeyChanged, HostKeyPrompt } from "../lib/api";
+import type { PasteAnalysis } from "../lib/paste";
 
 export type SessionStatus = "connecting" | "connected" | "closed";
 
@@ -22,7 +23,8 @@ export interface SessionTab {
 export type Prompt =
   | { kind: "hostkey"; data: HostKeyPrompt }
   | { kind: "changed"; data: HostKeyChanged }
-  | { kind: "askpass"; data: AskpassPrompt };
+  | { kind: "askpass"; data: AskpassPrompt }
+  | { kind: "paste"; data: { tabKey: string; text: string; analysis: PasteAnalysis } };
 
 interface SessionsState {
   tabs: SessionTab[];

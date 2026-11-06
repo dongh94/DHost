@@ -7,6 +7,8 @@ const host = process.env.TAURI_DEV_HOST;
 // https://vite.dev/config/
 export default defineConfig(() => ({
   plugins: [react(), tailwindcss()],
+  // 개발용 가짜 백엔드(?mock)가 쓰는 모듈. 미리 묶어 두지 않으면 처음 쓸 때 "Outdated Optimize Dep" 오류가 난다.
+  optimizeDeps: { include: ["@tauri-apps/api/mocks"] },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //

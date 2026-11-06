@@ -1,6 +1,7 @@
 import { isTauri } from "@tauri-apps/api/core";
 import { api, type ConnectRequest, type Server } from "./api";
 import { createTerminal, getTerminal, disposeTerminal } from "./terminals";
+import { analyzePaste } from "./paste";
 import { useSessions, type SessionSource } from "../stores/sessions";
 import { useSettings } from "../stores/settings";
 import { useCatalog } from "../stores/catalog";
@@ -32,7 +33,7 @@ export function quickConnect(request: ConnectRequest) {
 
 function openTab(meta: { title: string; subtitle: string; source: SessionSource; production: boolean }) {
   const key = crypto.randomUUID();
-  const entry = createTerminal(key, resolveTheme());
+  const entry = createTerminal(key, resolveTheme(), useSettings.getState().fontSize);
 
   // 입력과 크기 변경은 현재 연결된 백엔드 세션으로 보낸다.
   entry.term.onData((data) => {
@@ -44,9 +45,46 @@ function openTab(meta: { title: string; subtitle: string; source: SessionSource;
     if (tab?.sessionId && tab.status !== "closed") void api.sessionResize(tab.sessionId, cols, rows);
   });
 
+  // 붙여넣기는 xterm보다 먼저 가로챈다. 위험 신호가 있으면 사용자가 확인하기 전까지 보내지 않는다 (FUN-08).
+  entry.el.addEventListener(
+    "paste",
+    (e) => {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      const text = e.clipboardData?.getData("text/plain") ?? "";
+      if (text) requestPaste(key, text);
+    },
+    true,
+  );
+
   useSessions.getState().addTab({ key, ...meta, sessionId: null, status: "connecting", exitCode: null });
   useUi.getState().setPage("sessions");
   void start(key);
+}
+
+function requestPaste(key: string, text: string) {
+  const tab = findTab(key);
+  if (!tab || tab.status !== "connected") return;
+  const analysis = analyzePaste(text);
+  if (!analysis.needsConfirm) {
+    getTerminal(key)?.term.paste(text);
+    return;
+  }
+  useSessions.getState().pushPrompt({ kind: "paste", data: { tabKey: key, text, analysis } });
+}
+
+/** 확인 대화상자에서 승인한 텍스트를 보낸다. 그 사이 연결이 끊겼으면 보내지 않는다. */
+export function commitPaste(key: string, text: string) {
+  const tab = findTab(key);
+  const entry = getTerminal(key);
+  if (!tab || !entry || tab.status !== "connected") return false;
+  entry.term.paste(text);
+  entry.term.focus();
+  return true;
+}
+
+export function focusTerminal(key: string) {
+  getTerminal(key)?.term.focus();
 }
 
 /** 끊어진 탭을 사용자가 직접 다시 연결한다 (FUN-07). 이전 출력과 구분선을 넣는다. */

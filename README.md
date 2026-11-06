@@ -33,7 +33,10 @@ pnpm dev
 ### 테스트
 
 ```bash
-# 단위 테스트
+# 프런트엔드 단위 테스트 (붙여넣기 위험 분석 등)
+pnpm test
+
+# Rust 단위 테스트
 cd src-tauri && cargo test
 
 # 실제 ssh + Docker 테스트 서버 E2E (dev/test-env/README.md 참고)

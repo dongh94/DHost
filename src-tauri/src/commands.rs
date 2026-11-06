@@ -140,3 +140,18 @@ pub fn hostkey_list(state: State<'_, AppState>) -> AppResult<Vec<HostKey>> {
 pub fn hostkey_delete(state: State<'_, AppState>, id: i64) -> AppResult<()> {
     state.hostkeys.remove(id)
 }
+
+#[tauri::command]
+pub fn settings_get(state: State<'_, AppState>) -> AppResult<std::collections::BTreeMap<String, String>> {
+    crate::settings::get_all(&state.db)
+}
+
+#[tauri::command]
+pub fn settings_set(state: State<'_, AppState>, key: String, value: String) -> AppResult<()> {
+    crate::settings::set(&state.db, &key, &value)
+}
+
+#[tauri::command]
+pub fn settings_reset(state: State<'_, AppState>) -> AppResult<()> {
+    crate::settings::reset(&state.db)
+}

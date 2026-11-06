@@ -58,6 +58,13 @@ const MIGRATIONS: &[&str] = &[
     );
     CREATE INDEX host_keys_host ON host_keys(host);
     "#,
+    // v2: 앱 설정 (키-값). 인증정보는 넣지 않는다.
+    r#"
+    CREATE TABLE settings (
+        key   TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+    );
+    "#,
 ];
 
 impl Db {

@@ -51,6 +51,8 @@ export function installDevMock() {
           return { name: "openssh", version: "OpenSSH_10.3p1 (mock)", supported: true };
         case "catalog":
           return structuredClone(catalog);
+        case "settings_get":
+          return {};
         case "hostkey_list":
           return hostKeys;
         case "server_set_favorite": {
