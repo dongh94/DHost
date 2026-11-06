@@ -11,9 +11,9 @@ permissions:
 
 jobs:
   dmg:
-    runs-on: macos-14
+    runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: 태그와 앱 버전 일치 확인
         run: |
           tag="${GITHUB_REF_NAME#v}"
@@ -23,9 +23,9 @@ jobs:
           fi
       - run: scripts/check-secrets.sh
       - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm test

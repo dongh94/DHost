@@ -19,7 +19,7 @@ jobs:
     name: 비밀 정보 검사
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
       - name: 저장소 규칙 (파일 이름, 개인키, 실서버 IP)
@@ -31,13 +31,13 @@ jobs:
 
   build-test:
     name: 빌드·테스트 (macOS Apple Silicon)
-    runs-on: macos-14
+    runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: 프런트엔드 테스트
@@ -64,7 +64,7 @@ jobs:
     name: 의존성 취약점 검사
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-audit
