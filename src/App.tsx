@@ -3,6 +3,8 @@ import { Header } from "./components/Header";
 import { NavRail } from "./components/NavRail";
 import { PromptDialog } from "./components/PromptDialog";
 import { StatusBar } from "./components/StatusBar";
+import { UpdateDialog } from "./components/UpdateDialog";
+import { startUpdateChecks } from "./stores/update";
 import { installShortcuts } from "./lib/shortcuts";
 import { setAllFontSizes, setAllThemes } from "./lib/terminals";
 import { useApplyTheme } from "./lib/useApplyTheme";
@@ -26,6 +28,7 @@ export default function App() {
   useEffect(() => setAllThemes(theme), [theme]);
   useEffect(() => setAllFontSizes(fontSize), [fontSize]);
   useEffect(() => installShortcuts(), []);
+  useEffect(() => startUpdateChecks(), []);
   useEffect(() => {
     void useSettings.getState().load();
     void useCatalog.getState().reload();
@@ -47,6 +50,7 @@ export default function App() {
       </div>
       <StatusBar />
       <PromptDialog />
+      <UpdateDialog />
     </div>
   );
 }

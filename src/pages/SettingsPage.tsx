@@ -1,5 +1,8 @@
-import { useState } from "react";
-import { Monitor, Moon, RotateCcw, Sun } from "lucide-react";
+import { useEffect, useState } from "react";
+import { isTauri } from "@tauri-apps/api/core";
+import { getVersion } from "@tauri-apps/api/app";
+import { Download, Monitor, Moon, RefreshCw, RotateCcw, Sun } from "lucide-react";
+import { useUpdate } from "../stores/update";
 import { useSettings, type ThemeMode } from "../stores/settings";
 import { Button, PageHeader } from "../components/ui";
 import { ConfirmDialog } from "../components/dialogs";
@@ -20,6 +23,45 @@ function Section({ title, description, children }: { title: string; description:
       </div>
       <div className="shrink-0">{children}</div>
     </section>
+  );
+}
+
+function UpdateSection() {
+  const { currentVersion, status, info, error, lastChecked, check, openDialog } = useUpdate();
+  useEffect(() => {
+    if (!currentVersion && isTauri()) {
+      if ((window as unknown as { __DHOST_MOCK__?: unknown }).__DHOST_MOCK__) useUpdate.setState({ currentVersion: "0.1.0" });
+      else void getVersion().then((v) => useUpdate.setState({ currentVersion: v }));
+    }
+  }, [currentVersion]);
+  const message =
+    status === "checking"
+      ? "확인 중…"
+      : status === "available" && info
+        ? `새 버전 ${info.version}이 있습니다.`
+        : status === "none"
+          ? "최신 버전입니다."
+          : status === "error"
+            ? `확인하지 못했습니다: ${error ?? ""}`
+            : lastChecked
+              ? ""
+              : "앱을 열면 자동으로 확인하고, 6시간마다 다시 확인합니다.";
+  return (
+    <div className="rounded-lg border border-line bg-surface">
+      <Section title="앱 업데이트" description={`현재 버전 ${currentVersion ?? "-"} · ${message}`}>
+        {status === "available" ? (
+          <Button variant="primary" onClick={openDialog}>
+            <Download className="h-4 w-4" />
+            업데이트
+          </Button>
+        ) : (
+          <Button onClick={() => void check(true)} disabled={status === "checking" || status === "downloading"}>
+            <RefreshCw className={`h-4 w-4 ${status === "checking" ? "animate-spin" : ""}`} />
+            업데이트 확인
+          </Button>
+        )}
+      </Section>
+    </div>
   );
 }
 
@@ -94,6 +136,8 @@ export function SettingsPage() {
             </div>
           </Section>
         </div>
+
+        <UpdateSection />
 
         <BackupSection />
 

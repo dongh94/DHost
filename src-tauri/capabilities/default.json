@@ -19,6 +19,8 @@
           "url": "http://*"
         }
       ]
-    }
+    },
+    "updater:default",
+    "process:allow-restart"
   ]
 }

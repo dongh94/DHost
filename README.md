@@ -9,7 +9,7 @@
 
 ## 설치 (팀원)
 
-[docs/install.md](docs/install.md) — macOS 12 이상, Apple Silicon. 배포 절차는 [docs/release.md](docs/release.md).
+[docs/install.md](docs/install.md) — macOS 12 이상, Apple Silicon. 설치 후에는 앱 안에서 업데이트한다. 배포 절차는 [docs/release.md](docs/release.md).
 
 ## 단축키
 

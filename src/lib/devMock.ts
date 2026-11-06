@@ -43,6 +43,10 @@ export function installDevMock() {
   ];
 
   (window as unknown as { isTauri: boolean }).isTauri = true;
+  // ?mock&update 로 열면 새 버전이 있는 것처럼 보여 준다.
+  (window as unknown as { __DHOST_MOCK__: { update: boolean } }).__DHOST_MOCK__ = {
+    update: new URLSearchParams(location.search).has("update"),
+  };
   mockIPC(
     (cmd, args) => {
       const a = (args ?? {}) as Record<string, unknown>;

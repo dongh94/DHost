@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { isTauri } from "@tauri-apps/api/core";
 import { api, type EngineInfo } from "../lib/api";
 import { useSessions } from "../stores/sessions";
+import { useUpdate } from "../stores/update";
 
 /** 하단 상태바: SSH 엔진 상태와 세션 수 */
 export function StatusBar() {
@@ -9,6 +10,8 @@ export function StatusBar() {
   const [error, setError] = useState<string | null>(null);
   const tabs = useSessions((s) => s.tabs);
   const connected = tabs.filter((t) => t.status === "connected").length;
+  const update = useUpdate((s) => (s.status === "available" || s.status === "error" ? s.info : null));
+  const openUpdate = useUpdate((s) => s.openDialog);
 
   useEffect(() => {
     if (!isTauri()) {
@@ -27,7 +30,15 @@ export function StatusBar() {
         <span className={`h-2 w-2 rounded-full ${ok ? "bg-emerald-500" : error ? "bg-red-500" : "bg-amber-400"}`} />
         {engine && !engine.supported ? `${label} (지원하지 않는 버전, 8.5 이상 필요)` : label}
       </span>
-      <span className="ml-auto">
+      {update && (
+        <button
+          onClick={openUpdate}
+          className="ml-auto rounded-full bg-brand-600 px-2 py-0.5 font-medium text-white hover:bg-brand-700"
+        >
+          새 버전 {update.version} 업데이트
+        </button>
+      )}
+      <span className={update ? "" : "ml-auto"}>
         세션 {connected}개 연결됨{tabs.length > connected ? ` · 끊김 ${tabs.length - connected}개` : ""}
       </span>
     </footer>
