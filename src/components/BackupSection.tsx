@@ -13,6 +13,13 @@ function today() {
   return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
 }
 
+/** 백업 파일을 고르고 미리보기를 읽는다. 사용자가 취소하면 null. 서버 화면의 가져오기에서도 쓴다. */
+export async function pickBackup(): Promise<{ path: string; preview: BackupPreview } | null> {
+  const path = await open({ multiple: false, directory: false, filters: FILTERS });
+  if (!path || Array.isArray(path)) return null;
+  return { path, preview: await api.backupPreview(path) };
+}
+
 /** 설정 화면의 백업·복원 (POL-05, FUN-12). 비밀번호·개인키·접속 이력은 백업하지 않는다. */
 export function BackupSection() {
   const [includeHostKeys, setIncludeHostKeys] = useState(true);
@@ -37,9 +44,8 @@ export function BackupSection() {
     setError(null);
     setNotice(null);
     try {
-      const path = await open({ multiple: false, directory: false, filters: FILTERS });
-      if (!path || Array.isArray(path)) return;
-      setRestore({ path, preview: await api.backupPreview(path) });
+      const picked = await pickBackup();
+      if (picked) setRestore(picked);
     } catch (e) {
       setError(String(e));
     }
@@ -93,7 +99,8 @@ export function BackupSection() {
   );
 }
 
-function RestoreDialog({
+/** 백업 복원 확인 창. 합치기/전체 교체와 가져올 항목을 고른다. */
+export function RestoreDialog({
   path,
   preview: p,
   onClose,
@@ -102,7 +109,7 @@ function RestoreDialog({
   path: string;
   preview: BackupPreview;
   onClose: () => void;
-  onDone: (r: RestoreReport) => void;
+  onDone?: (r: RestoreReport) => void;
 }) {
   const [opts, setOpts] = useState<RestoreOptions>({ mode: "merge", hostKeys: true, settings: true });
   const [report, setReport] = useState<RestoreReport | null>(null);
@@ -147,7 +154,7 @@ function RestoreDialog({
                 await useCatalog.getState().reload();
                 await useSettings.getState().load();
                 setReport(r);
-                onDone(r);
+                onDone?.(r);
               } catch (e) {
                 setError(String(e));
               }

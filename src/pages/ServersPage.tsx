@@ -5,6 +5,8 @@ import {
   ChevronRight,
   FolderClosed,
   FileDown,
+  FileCode2,
+  Archive,
   FolderPlus,
   Pencil,
   Play,
@@ -14,12 +16,13 @@ import {
   Trash2,
   Zap,
 } from "lucide-react";
-import { api, type Server } from "../lib/api";
+import { api, type BackupPreview, type Server } from "../lib/api";
 import { connectServer } from "../lib/connect";
 import { useCatalog } from "../stores/catalog";
 import { useSessions } from "../stores/sessions";
 import { useUi } from "../stores/ui";
-import { Badge, Button, IconButton, PageHeader } from "../components/ui";
+import { Badge, Button, DropdownButton, IconButton, Modal, PageHeader } from "../components/ui";
+import { pickBackup, RestoreDialog } from "../components/BackupSection";
 import { ServerDialog } from "../components/ServerDialog";
 import { QuickConnectDialog } from "../components/QuickConnectDialog";
 import { ConfirmDialog, NameDialog } from "../components/dialogs";
@@ -31,6 +34,8 @@ type Dialog =
   | { kind: "server"; server?: Server; customerId?: string | null; folderId?: string | null }
   | { kind: "quick" }
   | { kind: "importConfig" }
+  | { kind: "restore"; path: string; preview: BackupPreview }
+  | { kind: "error"; message: string }
   | { kind: "deleteServer"; server: Server }
   | { kind: "customer"; id?: string; name?: string }
   | { kind: "deleteCustomer"; id: string; name: string }
@@ -223,10 +228,31 @@ export function ServersPage() {
         description="고객사와 폴더별로 서버를 관리합니다. 행을 더블클릭하거나 ▶를 누르면 연결합니다."
         actions={
           <>
-            <Button onClick={() => setDialog({ kind: "importConfig" })} title="~/.ssh/config에서 가져오기">
-              <FileDown className="h-4 w-4" />
-              가져오기
-            </Button>
+            <DropdownButton
+              label="가져오기"
+              icon={<FileDown className="h-4 w-4" />}
+              options={[
+                {
+                  label: "SSH 설정에서 가져오기",
+                  description: "~/.ssh/config의 Host 항목을 서버로 추가",
+                  icon: <FileCode2 className="h-4 w-4" />,
+                  onSelect: () => setDialog({ kind: "importConfig" }),
+                },
+                {
+                  label: "백업 파일에서 가져오기",
+                  description: "DHost 백업(.dhost-backup)에서 복원",
+                  icon: <Archive className="h-4 w-4" />,
+                  onSelect: async () => {
+                    try {
+                      const picked = await pickBackup();
+                      if (picked) setDialog({ kind: "restore", ...picked });
+                    } catch (e) {
+                      setDialog({ kind: "error", message: String(e) });
+                    }
+                  },
+                },
+              ]}
+            />
             <Button onClick={() => setDialog({ kind: "customer" })}>
               <Building2 className="h-4 w-4" />
               고객사 추가
@@ -398,6 +424,18 @@ export function ServersPage() {
       )}
       {dialog?.kind === "quick" && <QuickConnectDialog onClose={() => setDialog(null)} />}
       {dialog?.kind === "importConfig" && <SshConfigImportDialog onClose={() => setDialog(null)} />}
+      {dialog?.kind === "restore" && (
+        <RestoreDialog path={dialog.path} preview={dialog.preview} onClose={() => setDialog(null)} />
+      )}
+      {dialog?.kind === "error" && (
+        <Modal
+          title="백업 파일을 열 수 없습니다"
+          onClose={() => setDialog(null)}
+          footer={<Button variant="primary" onClick={() => setDialog(null)}>확인</Button>}
+        >
+          <p className="break-all text-sm text-fg">{dialog.message}</p>
+        </Modal>
+      )}
       {dialog?.kind === "deleteServer" && (
         <ConfirmDialog
           title="서버 삭제"

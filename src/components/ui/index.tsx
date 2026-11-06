@@ -1,4 +1,5 @@
-import { useEffect, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from "react";
+import { ChevronDown } from "lucide-react";
+import { useEffect, useRef, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from "react";
 
 type Variant = "primary" | "secondary" | "ghost" | "danger";
 
@@ -124,6 +125,62 @@ export function PageHeader({ title, description, actions }: { title: string; des
         <p className="mt-0.5 text-sm text-fg-muted">{description}</p>
       </div>
       {actions && <div className="flex shrink-0 gap-2">{actions}</div>}
+    </div>
+  );
+}
+
+export interface MenuOption {
+  label: string;
+  description?: string;
+  icon?: ReactNode;
+  onSelect: () => void;
+}
+
+/** 버튼을 누르면 아래로 펼쳐지는 메뉴. 바깥을 누르거나 Esc를 누르면 닫힌다. */
+export function DropdownButton({ label, icon, options }: { label: string; icon?: ReactNode; options: MenuOption[] }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    window.addEventListener("mousedown", onDown);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+  return (
+    <div ref={ref} className="relative">
+      <Button onClick={() => setOpen((v) => !v)} aria-haspopup="menu" aria-expanded={open}>
+        {icon}
+        {label}
+        <ChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-180" : ""}`} />
+      </Button>
+      {open && (
+        <div role="menu" className="absolute right-0 z-40 mt-1 w-72 overflow-hidden rounded-lg border border-line bg-surface py-1 shadow-lg">
+          {options.map((o) => (
+            <button
+              key={o.label}
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                o.onSelect();
+              }}
+              className="flex w-full items-start gap-2.5 px-3 py-2 text-left hover:bg-muted"
+            >
+              {o.icon && <span className="mt-0.5 shrink-0 text-fg-muted">{o.icon}</span>}
+              <span>
+                <span className="block text-sm text-fg">{o.label}</span>
+                {o.description && <span className="block text-xs text-fg-muted">{o.description}</span>}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

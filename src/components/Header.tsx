@@ -1,5 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Search } from "lucide-react";
+// macOS 앱 아이콘과 같은 이미지
+import logo from "../assets/logo.png";
 import { connectServer } from "../lib/connect";
 import { useCatalog } from "../stores/catalog";
 import { useUi } from "../stores/ui";
@@ -40,7 +42,7 @@ export function Header() {
   return (
     <header className="flex h-12 shrink-0 items-center gap-4 border-b border-line bg-chrome px-4">
       <div className="flex w-48 items-center gap-2">
-        <div className="flex h-6 w-6 items-center justify-center rounded-md bg-brand-600 text-xs font-bold text-white">D</div>
+        <img src={logo} alt="" className="h-6 w-6" draggable={false} />
         <span className="text-sm font-semibold text-fg">DHost</span>
       </div>
       <div className="relative mx-auto w-full max-w-md">
