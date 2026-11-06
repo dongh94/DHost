@@ -4,6 +4,7 @@ import { useSessions, type SessionStatus } from "../stores/sessions";
 import { useUi } from "../stores/ui";
 import { Button } from "../components/ui";
 import { TerminalView } from "../components/TerminalView";
+import { DiagnosisPanel } from "../components/DiagnosisPanel";
 
 const dot: Record<SessionStatus, string> = {
   connecting: "bg-amber-400",
@@ -19,7 +20,7 @@ const statusLabel: Record<SessionStatus, string> = {
 
 /** 열린 SSH 세션 탭과 터미널 (FUN-05, FUN-06) */
 export function SessionsPage({ visible }: { visible: boolean }) {
-  const { tabs, activeKey, setActive } = useSessions();
+  const { tabs, activeKey, setActive, updateTab } = useSessions();
   const setPage = useUi((s) => s.setPage);
   const active = tabs.find((t) => t.key === activeKey);
 
@@ -103,7 +104,14 @@ export function SessionsPage({ visible }: { visible: boolean }) {
             </div>
           )}
 
-          <div className={`min-h-0 flex-1 ${active?.production ? "border-l-4 border-red-500" : ""}`}>
+          <div className={`relative min-h-0 flex-1 ${active?.production ? "border-l-4 border-red-500" : ""}`}>
+            {active?.status === "closed" && active.diagnosis && (
+              <DiagnosisPanel
+                diagnosis={active.diagnosis}
+                onReconnect={() => reconnect(active.key)}
+                onDismiss={() => updateTab(active.key, { diagnosis: null })}
+              />
+            )}
             {tabs.map((t) => (
               <TerminalView key={t.key} termKey={t.key} active={visible && t.key === activeKey} />
             ))}

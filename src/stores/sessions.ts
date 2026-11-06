@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { AskpassPrompt, ConnectRequest, HostKeyChanged, HostKeyPrompt } from "../lib/api";
+import type { AskpassPrompt, ConnectRequest, Diagnosis, HostKeyChanged, HostKeyPrompt } from "../lib/api";
 import type { PasteAnalysis } from "../lib/paste";
 
 export type SessionStatus = "connecting" | "connected" | "closed";
@@ -20,6 +20,8 @@ export interface SessionTab {
   exitCode: number | null;
   /** 사용자가 인증 창에서 취소했다 */
   authCancelled?: boolean;
+  /** 연결 실패 원인 (FUN-16) */
+  diagnosis?: Diagnosis | null;
 }
 
 export type Prompt =

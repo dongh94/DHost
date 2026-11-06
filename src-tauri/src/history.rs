@@ -25,6 +25,8 @@ pub struct HistoryEntry {
     /// connecting | closed | auth_failed | hostkey_rejected | hostkey_changed | cancelled | error | interrupted
     pub result: String,
     pub exit_code: Option<i64>,
+    /// 실패 원인 코드 (diagnose.rs)
+    pub reason: Option<String>,
 }
 
 pub struct HistoryStore {
@@ -60,11 +62,11 @@ impl HistoryStore {
         })
     }
 
-    pub fn finish(&self, id: i64, result: &str, exit_code: Option<i64>) -> AppResult<()> {
+    pub fn finish(&self, id: i64, result: &str, exit_code: Option<i64>, reason: Option<&str>) -> AppResult<()> {
         self.db.with(|c| {
             c.execute(
-                "UPDATE connection_history SET ended_at = ?2, result = ?3, exit_code = ?4 WHERE id = ?1",
-                params![id, now(), result, exit_code],
+                "UPDATE connection_history SET ended_at = ?2, result = ?3, exit_code = ?4, reason = ?5 WHERE id = ?1",
+                params![id, now(), result, exit_code, reason],
             )
         })?;
         Ok(())
@@ -73,7 +75,7 @@ impl HistoryStore {
     pub fn list(&self, limit: i64) -> AppResult<Vec<HistoryEntry>> {
         self.db.with(|c| {
             let mut st = c.prepare(
-                "SELECT id, server_id, title, target, via, started_at, ended_at, result, exit_code
+                "SELECT id, server_id, title, target, via, started_at, ended_at, result, exit_code, reason
                  FROM connection_history ORDER BY started_at DESC, id DESC LIMIT ?1",
             )?;
             st.query_map([limit], |r| {
@@ -87,6 +89,7 @@ impl HistoryStore {
                     ended_at: r.get(6)?,
                     result: r.get(7)?,
                     exit_code: r.get(8)?,
+                    reason: r.get(9)?,
                 })
             })?
             .collect()
@@ -110,7 +113,7 @@ mod tests {
         let h = HistoryStore::new(db.clone());
         let a = h.start(Some("s1"), "web-01", "ops@192.0.2.11:22", Some("bastion")).unwrap();
         let b = h.start(None, "quick", "x@192.0.2.12:22", None).unwrap();
-        h.finish(a, "closed", Some(0)).unwrap();
+        h.finish(a, "closed", Some(0), None).unwrap();
         // 아주 오래된 기록
         db.with(|c| c.execute("UPDATE connection_history SET started_at = 1 WHERE id = ?1", [a])).unwrap();
         h.maintain().unwrap();

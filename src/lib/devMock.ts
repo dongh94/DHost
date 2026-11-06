@@ -54,7 +54,8 @@ export function installDevMock() {
         case "history_list":
           return [
             { id: 3, serverId: "s2", title: "web-01", target: "ops@192.0.2.11:22", via: "bastion", startedAt: now - 7200, endedAt: now - 5400, result: "closed", exitCode: 0 },
-            { id: 2, serverId: "s2", title: "web-01", target: "ops@192.0.2.11:22", via: "bastion", startedAt: now - 7300, endedAt: now - 7290, result: "auth_failed", exitCode: 255 },
+            { id: 2, serverId: "s2", title: "web-01", target: "ops@192.0.2.11:22", via: "bastion", startedAt: now - 7300, endedAt: now - 7290, result: "auth_failed", exitCode: 255, reason: "auth_password" },
+            { id: 4, serverId: "s4", title: "dev-api", target: "dev@192.0.2.21:2222", via: null, startedAt: now - 3600, endedAt: now - 3585, result: "error", exitCode: 255, reason: "timeout" },
             { id: 1, serverId: "s5", title: "gw-01", target: "ops@198.51.100.5:22", via: null, startedAt: now - 86400, endedAt: now - 86398, result: "hostkey_changed", exitCode: 255 },
           ];
         case "known_hosts_scan":
@@ -117,6 +118,8 @@ export function installDevMock() {
           return null;
         }
         case "server_connect":
+          // 화면 확인용: 세션 ID를 예측할 수 있게 한다 (예: mock-s2)
+          return `mock-${a.serverId}`;
         case "session_open":
           return crypto.randomUUID();
         default:

@@ -38,12 +38,13 @@ pub fn session_open(
 
 fn open_with(
     state: State<'_, AppState>,
-    request: ConnectRequest,
+    mut request: ConnectRequest,
     label: SessionLabel,
     cols: u16,
     rows: u16,
     on_output: Channel<InvokeResponseBody>,
 ) -> AppResult<String> {
+    request.connect_timeout = Some(crate::settings::connect_timeout(&state.db));
     state.sessions.open(
         state.engine.as_ref(),
         state.broker.clone(),

@@ -36,6 +36,9 @@ pub struct ConnectRequest {
     pub target: Endpoint,
     /// 단일 Jump Host (FUN-13)
     pub jump: Option<Endpoint>,
+    /// 구간별 연결 시간 제한(초). 앱 설정값을 넣는다.
+    #[serde(default)]
+    pub connect_timeout: Option<u32>,
 }
 
 /// ssh가 실행하는 DHost helper(호스트 키 확인, 비밀번호 입력)와 앱을 잇는 정보

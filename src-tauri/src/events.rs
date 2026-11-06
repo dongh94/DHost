@@ -42,6 +42,8 @@ pub struct AskpassPrompt {
 pub struct SessionExit {
     pub session_id: String,
     pub exit_code: Option<u32>,
+    /// 연결 실패 원인과 해결 방법 (FUN-16)
+    pub diagnosis: Option<crate::diagnose::Diagnosis>,
 }
 
 #[derive(Debug, Clone)]

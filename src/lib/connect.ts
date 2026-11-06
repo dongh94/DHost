@@ -1,5 +1,5 @@
 import { isTauri } from "@tauri-apps/api/core";
-import { api, type ConnectRequest, type Server } from "./api";
+import { api, type ConnectRequest, type Diagnosis, type Server } from "./api";
 import { createTerminal, getTerminal, disposeTerminal } from "./terminals";
 import { analyzePaste } from "./paste";
 import { useSessions, type SessionSource } from "../stores/sessions";
@@ -97,7 +97,13 @@ export function focusTerminal(key: string) {
 /** 끊어진 탭을 사용자가 직접 다시 연결한다 (FUN-07). 이전 출력과 구분선을 넣는다. */
 export function reconnect(key: string) {
   getTerminal(key)?.term.write("\r\n\x1b[2m──────── 재접속 ────────\x1b[0m\r\n");
-  useSessions.getState().updateTab(key, { status: "connecting", sessionId: null, exitCode: null, authCancelled: false });
+  useSessions.getState().updateTab(key, {
+    status: "connecting",
+    sessionId: null,
+    exitCode: null,
+    authCancelled: false,
+    diagnosis: null,
+  });
   void start(key);
 }
 
@@ -109,15 +115,15 @@ export function closeTab(key: string) {
 }
 
 /** 세션 ID를 받기 전에 도착한 종료 이벤트 */
-const earlyExits = new Map<string, number | null>();
+const earlyExits = new Map<string, { exitCode: number | null; diagnosis: Diagnosis | null }>();
 
-export function markExited(sessionId: string, exitCode: number | null) {
+export function markExited(sessionId: string, exitCode: number | null, diagnosis: Diagnosis | null = null) {
   const tab = useSessions.getState().tabs.find((t) => t.sessionId === sessionId);
   if (!tab) {
-    earlyExits.set(sessionId, exitCode);
+    earlyExits.set(sessionId, { exitCode, diagnosis });
     return;
   }
-  useSessions.getState().updateTab(tab.key, { status: "closed", exitCode });
+  useSessions.getState().updateTab(tab.key, { status: "closed", exitCode, diagnosis });
   getTerminal(tab.key)?.term.write(
     tab.authCancelled
       ? "\r\n\x1b[2m[인증을 취소해 연결하지 않았습니다]\x1b[0m\r\n"
@@ -148,10 +154,10 @@ async function start(key: string) {
     const current = findTab(key);
     if (current && current.status === "connecting") {
       useSessions.getState().updateTab(key, { sessionId, status: "connected" });
-      if (earlyExits.has(sessionId)) {
-        const code = earlyExits.get(sessionId) ?? null;
+      const early = earlyExits.get(sessionId);
+      if (early) {
         earlyExits.delete(sessionId);
-        markExited(sessionId, code);
+        markExited(sessionId, early.exitCode, early.diagnosis);
       }
     }
   } catch (e) {

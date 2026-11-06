@@ -11,6 +11,8 @@ pub struct Hop {
     pub server_id: Option<String>,
     pub user: String,
     pub host: String,
+    /// 화면에 보일 이름 ("경유 서버 bastion", "대상 서버 web-01")
+    pub label: String,
 }
 
 #[derive(Debug, Default)]
@@ -36,6 +38,22 @@ pub struct SessionMeta {
     /// [경유 서버, 대상 서버] 또는 [대상 서버]
     pub hops: Vec<Hop>,
     pub flags: Mutex<Flags>,
+    /// 진단용으로 잠깐 들고 있는 최근 출력 (저장하지 않음)
+    pub tail: Mutex<Vec<u8>>,
+}
+
+/// 진단에 쓰는 최근 출력 크기
+pub const TAIL_BYTES: usize = 8 * 1024;
+
+impl SessionMeta {
+    pub fn push_tail(&self, chunk: &[u8]) {
+        let mut t = self.tail.lock().unwrap();
+        t.extend_from_slice(chunk);
+        if t.len() > TAIL_BYTES {
+            let cut = t.len() - TAIL_BYTES;
+            t.drain(..cut);
+        }
+    }
 }
 
 impl SessionMeta {
@@ -58,10 +76,11 @@ mod tests {
             session_id: "s".into(),
             history_id: None,
             hops: vec![
-                Hop { server_id: Some("j".into()), user: "dhost".into(), host: "127.0.0.1".into() },
-                Hop { server_id: Some("t".into()), user: "dhost".into(), host: "target".into() },
+                Hop { server_id: Some("j".into()), user: "dhost".into(), host: "127.0.0.1".into(), label: "j".into() },
+                Hop { server_id: Some("t".into()), user: "dhost".into(), host: "target".into(), label: "t".into() },
             ],
             flags: Mutex::new(Flags::default()),
+            tail: Mutex::new(vec![]),
         };
         assert_eq!(m.hop_for_prompt("dhost@127.0.0.1's password: "), Some(0));
         assert_eq!(m.hop_for_prompt("dhost@target's password: "), Some(1));

@@ -272,6 +272,7 @@ pub fn plan(db: &Db, id: &str, touch: bool) -> AppResult<(ConnectRequest, Sessio
         let req = ConnectRequest {
             target: Endpoint { host: s.host, port: s.port, user: s.username },
             jump: jump.map(|j| Endpoint { host: j.host, port: j.port, user: j.username }),
+            connect_timeout: None,
         };
         Ok((req, label))
     })

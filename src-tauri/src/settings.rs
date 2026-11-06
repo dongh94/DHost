@@ -12,6 +12,7 @@ pub fn validate(key: &str, value: &str) -> AppResult<()> {
     let ok = match key {
         "theme" => matches!(value, "system" | "light" | "dark"),
         "terminal.fontSize" => value.parse::<u8>().map(|n| (10..=24).contains(&n)).unwrap_or(false),
+        "ssh.connectTimeout" => value.parse::<u32>().map(|n| (5..=120).contains(&n)).unwrap_or(false),
         _ => return Err(AppError::InvalidInput(format!("알 수 없는 설정입니다: {key}"))),
     };
     if !ok {
@@ -39,6 +40,14 @@ pub fn set(db: &Db, key: &str, value: &str) -> AppResult<()> {
 }
 
 /// 설정만 기본값으로 되돌린다. 서버 목록과 호스트 키는 그대로 둔다.
+/// 연결 시간 제한(초). 설정이 없으면 15초.
+pub fn connect_timeout(db: &Db) -> u32 {
+    get_all(db)
+        .ok()
+        .and_then(|m| m.get("ssh.connectTimeout").and_then(|v| v.parse().ok()))
+        .unwrap_or(15)
+}
+
 pub fn reset(db: &Db) -> AppResult<()> {
     db.with(|c| c.execute("DELETE FROM settings", []))?;
     Ok(())

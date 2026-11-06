@@ -63,6 +63,8 @@ src-tauri/src/
   secrets.rs          비밀번호 저장소 (macOS 키체인)
   history.rs          접속 이력 (30일)
   meta.rs             세션별 상태 (비밀번호 시도, 취소, 결과 판단)
+  diagnose.rs         연결 실패 원인과 해결 방법 (FUN-16)
+  backup.rs           설정 백업·복원
   sshfiles.rs         ~/.ssh/known_hosts, ~/.ssh/config 읽기
   session.rs          PTY 세션 관리
   ipc.rs              helper ↔ 앱 Unix 소켓 통신, 호스트 키 판단

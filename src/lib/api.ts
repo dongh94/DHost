@@ -17,6 +17,27 @@ export interface ConnectRequest {
   jump: Endpoint | null;
 }
 
+/** 진단 코드별 짧은 이름 (이력 화면용) */
+export const reasonLabels: Record<string, string> = {
+  dns: "주소 없음",
+  refused: "연결 거부",
+  timeout: "시간 초과",
+  unreachable: "네트워크 없음",
+  closed_early: "서버가 끊음",
+  not_ssh: "SSH 아님",
+  auth_password: "비밀번호 틀림",
+  auth_key_only: "키 전용 서버",
+  auth_too_many: "시도 횟수 초과",
+  auth_failed: "로그인 실패",
+  kex_legacy: "보안 방식 불일치",
+  forward_denied: "경유 차단",
+  forward_failed: "경유 후 연결 실패",
+  lost: "연결 끊김",
+  hostkey_rejected: "키 승인 안 함",
+  hostkey_changed: "키 변경",
+  unknown: "알 수 없음",
+};
+
 export interface HostKeyPrompt {
   requestId: string;
   sessionId: string;
@@ -66,11 +87,22 @@ export interface HistoryEntry {
   endedAt: number | null;
   result: HistoryResult;
   exitCode: number | null;
+  reason: string | null;
+}
+
+export interface Diagnosis {
+  code: string;
+  title: string;
+  detail: string;
+  hints: string[];
+  /** 실패한 구간 (예: "경유 서버 bastion") */
+  hop: string | null;
 }
 
 export interface SessionExit {
   sessionId: string;
   exitCode: number | null;
+  diagnosis: Diagnosis | null;
 }
 
 export interface Customer {

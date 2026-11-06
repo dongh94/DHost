@@ -24,7 +24,7 @@ function Section({ title, description, children }: { title: string; description:
 }
 
 export function SettingsPage() {
-  const { theme, setTheme, fontSize, setFontSize, reset } = useSettings();
+  const { theme, setTheme, fontSize, setFontSize, connectTimeout, setConnectTimeout, reset } = useSettings();
   const [confirmReset, setConfirmReset] = useState(false);
 
   return (
@@ -61,6 +61,20 @@ export function SettingsPage() {
               <span className="w-10 text-right font-mono text-sm text-fg">{fontSize}px</span>
             </div>
           </Section>
+          <Section title="연결 시간 제한" description="서버(또는 경유 서버)가 이 시간 안에 응답하지 않으면 실패로 처리합니다.">
+            <div className="flex items-center gap-3">
+              <input
+                type="range"
+                min={5}
+                max={120}
+                step={5}
+                value={connectTimeout}
+                onChange={(e) => setConnectTimeout(Number(e.target.value))}
+                className="w-40 accent-brand-600"
+              />
+              <span className="w-10 text-right font-mono text-sm text-fg">{connectTimeout}초</span>
+            </div>
+          </Section>
         </div>
 
         <BackupSection />
@@ -77,7 +91,7 @@ export function SettingsPage() {
       {confirmReset && (
         <ConfirmDialog
           title="설정 초기화"
-          message="테마와 터미널 글자 크기를 기본값으로 되돌립니다."
+          message="테마, 터미널 글자 크기, 연결 시간 제한을 기본값으로 되돌립니다."
           confirmLabel="초기화"
           onClose={() => setConfirmReset(false)}
           onConfirm={reset}

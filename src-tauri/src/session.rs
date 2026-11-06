@@ -69,12 +69,18 @@ impl SessionManager {
 
         let mut hops = vec![];
         if let Some(j) = &req.jump {
-            hops.push(Hop { server_id: label.jump_server_id.clone(), user: j.user.clone(), host: j.host.clone() });
+            hops.push(Hop {
+                server_id: label.jump_server_id.clone(),
+                user: j.user.clone(),
+                host: j.host.clone(),
+                label: format!("경유 서버 {}", label.jump_title.clone().unwrap_or_else(|| j.host.clone())),
+            });
         }
         hops.push(Hop {
             server_id: label.target_server_id.clone(),
             user: req.target.user.clone(),
             host: req.target.host.clone(),
+            label: if req.jump.is_some() { format!("대상 서버 {}", label.title) } else { label.title.clone() },
         });
         let t = &req.target;
         let history_id = self.history.as_ref().and_then(|h| {
@@ -88,7 +94,13 @@ impl SessionManager {
             .map_err(|e| eprintln!("[dhost] 접속 이력 기록 실패: {e}"))
             .ok()
         });
-        let meta = Arc::new(SessionMeta { session_id: session_id.clone(), history_id, hops, flags: Mutex::new(Flags::default()) });
+        let meta = Arc::new(SessionMeta {
+            session_id: session_id.clone(),
+            history_id,
+            hops,
+            flags: Mutex::new(Flags::default()),
+            tail: Mutex::new(vec![]),
+        });
 
         let pair = native_pty_system()
             .openpty(PtySize { cols: size.0, rows: size.1, pixel_width: 0, pixel_height: 0 })
@@ -99,7 +111,7 @@ impl SessionManager {
             Err(e) => {
                 broker.unregister_session(&token);
                 if let (Some(h), Some(id)) = (&self.history, history_id) {
-                    let _ = h.finish(id, "error", None);
+                    let _ = h.finish(id, "error", None, None);
                 }
                 return Err(AppError::Internal(format!("ssh 실행 실패: {e}")));
             }
@@ -122,6 +134,7 @@ impl SessionManager {
                         if chunk.windows(17).any(|w| w == b"Permission denied") {
                             m.flags.lock().unwrap().permission_denied = true;
                         }
+                        m.push_tail(chunk);
                         if !output(chunk) {
                             break;
                         }
@@ -157,12 +170,22 @@ impl SessionManager {
                         }
                     }
                 }
-                classify(&f, code)
+                let diagnosis = if code == Some(255) {
+                    let tail = String::from_utf8_lossy(&m.tail.lock().unwrap()).into_owned();
+                    crate::diagnose::diagnose(&tail, &m.hops, &f)
+                } else {
+                    None
+                };
+                (classify(&f, code), diagnosis)
             };
+            let (result, diagnosis) = result;
+            // 진단이 끝나면 들고 있던 출력은 버린다.
+            m.tail.lock().unwrap().clear();
             if let (Some(h), Some(id)) = (&history, m.history_id) {
-                let _ = h.finish(id, result, code.map(i64::from));
+                let reason = diagnosis.as_ref().map(|d| d.code.as_str());
+                let _ = h.finish(id, result, code.map(i64::from), reason);
             }
-            sink.emit(AppEvent::SessionExit(SessionExit { session_id: sid, exit_code: code }));
+            sink.emit(AppEvent::SessionExit(SessionExit { session_id: sid, exit_code: code, diagnosis }));
         });
 
         self.sessions

@@ -1,6 +1,7 @@
 pub mod backup;
 mod commands;
 pub mod db;
+pub mod diagnose;
 pub mod error;
 pub mod events;
 mod helper;

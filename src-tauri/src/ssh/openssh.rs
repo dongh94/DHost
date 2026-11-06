@@ -127,6 +127,10 @@ fn known_hosts_command(exe: &str, pct: &str) -> AppResult<String> {
 fn build_args(req: &ConnectRequest, ctx: &HelperContext) -> AppResult<Vec<String>> {
     req.target.validate()?;
     let mut args = common_options(&known_hosts_command(&ctx.exe, "%")?);
+    let timeout = req.connect_timeout.map(|t| t.clamp(1, 600));
+    if let Some(t) = timeout {
+        args.extend(["-o".into(), format!("ConnectTimeout={t}")]);
+    }
 
     match &req.jump {
         None => {
@@ -141,6 +145,9 @@ fn build_args(req: &ConnectRequest, ctx: &HelperContext) -> AppResult<Vec<String
             let mut inner: Vec<String> = vec![SSH_PATH.into()];
             for (i, o) in common_options(&inner_kh).into_iter().enumerate() {
                 inner.push(if i % 2 == 1 { sh_quote(&o) } else { o });
+            }
+            if let Some(t) = timeout {
+                inner.extend(["-o".into(), format!("ConnectTimeout={t}")]);
             }
             inner.extend([
                 "-o".into(),
@@ -216,8 +223,10 @@ mod tests {
         let req = ConnectRequest {
             target: Endpoint { host: "192.0.2.10".into(), port: 2222, user: "dhost".into() },
             jump: None,
+            connect_timeout: Some(15),
         };
         let args = build_args(&req, &ctx()).unwrap();
+        assert!(args.contains(&"ConnectTimeout=15".to_string()));
         assert!(args.contains(&"StrictHostKeyChecking=yes".to_string()));
         assert!(args.contains(&"ProxyJump=none".to_string()));
         assert!(args.contains(
@@ -232,12 +241,14 @@ mod tests {
         let req = ConnectRequest {
             target: Endpoint { host: "target".into(), port: 22, user: "dhost".into() },
             jump: Some(Endpoint { host: "bastion.example.com".into(), port: 2222, user: "ops".into() }),
+            connect_timeout: Some(10),
         };
         let args = build_args(&req, &ctx()).unwrap();
         let pc = args.iter().find(|a| a.starts_with("ProxyCommand=")).unwrap();
         assert!(pc.contains("--dhost-known-hosts %%I %%H %%t %%K %%f"));
         assert!(pc.contains("-W '[%h]:%p' -- 'bastion.example.com'"));
         assert!(pc.contains("-l 'ops'"));
+        assert!(pc.contains("-o ConnectTimeout=10"));
         // 바깥 ssh에는 ProxyJump=none을 넣지 않는다 (ProxyCommand와 함께 쓰지 않음)
         assert!(!args.contains(&"ProxyJump=none".to_string()));
     }

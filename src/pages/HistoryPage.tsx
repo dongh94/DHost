@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { isTauri } from "@tauri-apps/api/core";
 import { History, Trash2 } from "lucide-react";
-import { api, type HistoryEntry, type HistoryResult } from "../lib/api";
+import { api, reasonLabels, type HistoryEntry, type HistoryResult } from "../lib/api";
 import { useUi } from "../stores/ui";
 import { Badge, Button, PageHeader } from "../components/ui";
 import { ConfirmDialog } from "../components/dialogs";
@@ -94,6 +94,9 @@ export function HistoryPage() {
                       <td className="py-2 text-xs text-fg-muted">{e.via ?? "—"}</td>
                       <td className="py-2">
                         <Badge tone={r.tone}>{r.label}</Badge>
+                        {e.reason && !["hostkey_rejected", "hostkey_changed"].includes(e.reason) && (
+                          <span className="ml-1.5 text-xs text-fg-muted">{reasonLabels[e.reason] ?? e.reason}</span>
+                        )}
                       </td>
                       <td className="py-2 pr-4 text-right text-xs text-fg-muted">{duration(e)}</td>
                     </tr>

@@ -80,6 +80,10 @@ const MIGRATIONS: &[&str] = &[
     );
     CREATE INDEX connection_history_started ON connection_history(started_at);
     "#,
+    // v4: 접속 실패 원인 코드
+    r#"
+    ALTER TABLE connection_history ADD COLUMN reason TEXT;
+    "#,
 ];
 
 impl Db {

@@ -196,7 +196,7 @@ fn is_changed(e: &AppEvent) -> bool {
 #[ignore]
 fn direct_first_connect_then_reconnect_then_key_change() {
     let h = Harness::new(temp_store("direct"), HostKeyPolicy::Trust);
-    let req = || ConnectRequest { target: bastion(), jump: None };
+    let req = || ConnectRequest { target: bastion(), jump: None, connect_timeout: None };
 
     // 1) 최초 접속: 호스트 키 승인 1회 + 비밀번호 1회, 명령 실행 결과 확인
     let (out, code) = h.run(req(), Some("echo M1-$(whoami)-$(hostname | wc -c); uptime; exit"));
@@ -240,7 +240,7 @@ fn direct_first_connect_then_reconnect_then_key_change() {
 #[ignore]
 fn rejected_host_key_never_authenticates() {
     let h = Harness::new(temp_store("reject"), HostKeyPolicy::Reject);
-    let (out, code) = h.run(ConnectRequest { target: bastion(), jump: None }, None);
+    let (out, code) = h.run(ConnectRequest { target: bastion(), jump: None, connect_timeout: None }, None);
     assert_eq!(code, Some(255), "출력: {out}");
     assert!(out.contains("Host key verification failed"), "출력: {out}");
     assert_eq!(h.count(is_hostkey_prompt), 1);
@@ -256,6 +256,7 @@ fn jump_host_verifies_both_hops() {
     let req = ConnectRequest {
         target: Endpoint { host: "target".into(), port: 22, user: "dhost".into() },
         jump: Some(bastion()),
+        connect_timeout: None,
     };
     let (out, code) = h.run(req, Some("cat /etc/motd; exit"));
     assert!(out.contains("bastion 경유 전용"), "출력: {out}");
@@ -276,7 +277,7 @@ fn close_kills_ssh_process() {
     let o = out.clone();
     let id = h
         .sessions
-        .open(&OpenSshEngine::new(), h.broker.clone(), ConnectRequest { target: bastion(), jump: None },
+        .open(&OpenSshEngine::new(), h.broker.clone(), ConnectRequest { target: bastion(), jump: None, connect_timeout: None },
             SessionLabel::default(), (80, 24),
             Box::new(move |b| { o.lock().unwrap().extend_from_slice(b); true }))
         .unwrap();
@@ -298,7 +299,7 @@ fn close_kills_ssh_process() {
 fn multibyte_and_ansi_pass_through() {
     let h = Harness::new(temp_store("utf8"), HostKeyPolicy::Trust);
     let (out, code) = h.run(
-        ConnectRequest { target: bastion(), jump: None },
+        ConnectRequest { target: bastion(), jump: None, connect_timeout: None },
         Some("printf '\\033[31m한글출력\\033[0m\\n'; exit"),
     );
     assert_eq!(code, Some(0));
@@ -325,7 +326,7 @@ fn askpass_prompts(h: &Harness) -> Vec<dhost_lib::events::AskpassPrompt> {
 fn cancel_password_stops_without_reprompt() {
     let h = Harness::new(temp_store("cancel"), HostKeyPolicy::Trust);
     *h.sink.askpass.lock().unwrap() = AskpassPolicy::Cancel;
-    let (_, code) = h.run(ConnectRequest { target: bastion(), jump: None }, None);
+    let (_, code) = h.run(ConnectRequest { target: bastion(), jump: None, connect_timeout: None }, None);
     assert_eq!(code, Some(255));
     // 취소 한 번이면 다시 묻지 않는다 (예전에는 3번까지 다시 물었음)
     assert_eq!(h.count(is_askpass), 1);
@@ -337,7 +338,7 @@ fn cancel_password_stops_without_reprompt() {
 fn save_then_autofill_password() {
     let h = Harness::new(temp_store("save"), HostKeyPolicy::Trust);
     *h.sink.askpass.lock().unwrap() = AskpassPolicy::Answer { password: TEST_PASSWORD.into(), save: true };
-    let req = || ConnectRequest { target: bastion(), jump: None };
+    let req = || ConnectRequest { target: bastion(), jump: None, connect_timeout: None };
 
     // 1) 저장 체크하고 접속 -> 키체인(테스트에서는 메모리)에 저장
     let (_, code) = h.run_as(req(), profile_label(), Some("exit"));
@@ -364,7 +365,7 @@ fn save_then_autofill_password() {
 fn wrong_saved_password_is_removed_and_reprompted() {
     let h = Harness::new(temp_store("wrongsaved"), HostKeyPolicy::Trust);
     h.secrets.set("srv-bastion", "wrong-password").unwrap();
-    let (_, code) = h.run_as(ConnectRequest { target: bastion(), jump: None }, profile_label(), Some("exit"));
+    let (_, code) = h.run_as(ConnectRequest { target: bastion(), jump: None, connect_timeout: None }, profile_label(), Some("exit"));
     assert_eq!(code, Some(0));
     let prompts = askpass_prompts(&h);
     // 자동 입력이 틀려서 한 번 물었고, 그때 "저장된 비밀번호가 틀렸다"고 알린다
@@ -378,10 +379,73 @@ fn wrong_saved_password_is_removed_and_reprompted() {
 fn wrong_password_saved_is_not_kept() {
     let h = Harness::new(temp_store("wrongnew"), HostKeyPolicy::Trust);
     *h.sink.askpass.lock().unwrap() = AskpassPolicy::Answer { password: "nope".into(), save: true };
-    let (_, code) = h.run_as(ConnectRequest { target: bastion(), jump: None }, profile_label(), None);
+    let (_, code) = h.run_as(ConnectRequest { target: bastion(), jump: None, connect_timeout: None }, profile_label(), None);
     assert_eq!(code, Some(255));
     // 틀린 비밀번호를 확인하면 다시 묻는다 (3번)
     assert_eq!(h.count(is_askpass), 3);
     assert!(h.secrets.get("srv-bastion").is_none());
     assert_eq!(last_result(&h), "auth_failed");
+}
+
+fn last_diagnosis(h: &Harness) -> Option<dhost_lib::diagnose::Diagnosis> {
+    h.sink.events.lock().unwrap().iter().rev().find_map(|e| match e {
+        AppEvent::SessionExit(x) => x.diagnosis.clone(),
+        _ => None,
+    })
+}
+
+fn ep(host: &str, port: u16) -> Endpoint {
+    Endpoint { host: host.into(), port, user: "dhost".into() }
+}
+
+#[test]
+#[ignore]
+fn diagnoses_network_failures() {
+    let h = Harness::new(temp_store("diag-net"), HostKeyPolicy::Trust);
+    let cases = [
+        (ConnectRequest { target: ep("127.0.0.1", 2299), jump: None, connect_timeout: Some(5) }, "refused", None),
+        (ConnectRequest { target: ep("nonexistent.invalid", 22), jump: None, connect_timeout: Some(5) }, "dns", None),
+        // 192.0.2.0/24는 문서용 주소라 응답이 없다 -> 시간 초과
+        (ConnectRequest { target: ep("192.0.2.1", 22), jump: None, connect_timeout: Some(2) }, "timeout", None),
+        // 경유 서버 포트가 틀림 -> 경유 서버 구간에서 거부
+        (
+            ConnectRequest { target: ep("target", 22), jump: Some(ep("127.0.0.1", 2299)), connect_timeout: Some(5) },
+            "refused",
+            Some("경유 서버 127.0.0.1"),
+        ),
+        // 경유 서버는 됐지만 대상 이름이 없음
+        (
+            ConnectRequest { target: ep("nosuch-target", 22), jump: Some(bastion()), connect_timeout: Some(5) },
+            "forward_failed",
+            Some("대상 서버 test"),
+        ),
+    ];
+    for (req, code, hop) in cases {
+        h.clear();
+        let (out, exit) = h.run(req, None);
+        assert_eq!(exit, Some(255), "출력: {out}");
+        let d = last_diagnosis(&h).unwrap_or_else(|| panic!("진단 없음: {out}"));
+        assert_eq!(d.code, code, "출력: {out}");
+        if let Some(hop) = hop {
+            assert_eq!(d.hop.as_deref(), Some(hop), "출력: {out}");
+        }
+        let r = h.history.list(1).unwrap().remove(0);
+        assert_eq!(r.reason.as_deref(), Some(code));
+    }
+}
+
+#[test]
+#[ignore]
+fn diagnoses_wrong_password_and_skips_cancel() {
+    let h = Harness::new(temp_store("diag-auth"), HostKeyPolicy::Trust);
+    *h.sink.askpass.lock().unwrap() = AskpassPolicy::Answer { password: "nope".into(), save: false };
+    let (_, code) = h.run(ConnectRequest { target: bastion(), jump: None, connect_timeout: None }, None);
+    assert_eq!(code, Some(255));
+    assert_eq!(last_diagnosis(&h).unwrap().code, "auth_password");
+
+    h.clear();
+    *h.sink.askpass.lock().unwrap() = AskpassPolicy::Cancel;
+    let (_, code) = h.run(ConnectRequest { target: bastion(), jump: None, connect_timeout: None }, None);
+    assert_eq!(code, Some(255));
+    assert!(last_diagnosis(&h).is_none(), "사용자가 취소한 건 오류로 보지 않는다");
 }

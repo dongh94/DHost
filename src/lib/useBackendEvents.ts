@@ -14,7 +14,9 @@ export function useBackendEvents() {
       listen<HostKeyPrompt>("hostkey-prompt", (e) => push({ kind: "hostkey", data: e.payload })),
       listen<HostKeyChanged>("hostkey-changed", (e) => push({ kind: "changed", data: e.payload })),
       listen<AskpassPrompt>("askpass-prompt", (e) => push({ kind: "askpass", data: e.payload })),
-      listen<SessionExit>("session-exit", (e) => markExited(e.payload.sessionId, e.payload.exitCode)),
+      listen<SessionExit>("session-exit", (e) =>
+        markExited(e.payload.sessionId, e.payload.exitCode, e.payload.diagnosis),
+      ),
     ];
     return () => {
       subs.forEach((p) => void p.then((unlisten) => unlisten()));

@@ -35,7 +35,7 @@ fn main() {
     let broker = Broker::start(sink.clone(), Arc::new(HostKeyStore::new(Db::open(&store).unwrap())), Arc::new(MemoryStore::default())).unwrap();
     sink.0.set(Arc::downgrade(&broker)).unwrap();
     let sessions = SessionManager::new(sink, helper, None);
-    let req = ConnectRequest { target: Endpoint { host: "127.0.0.1".into(), port: 2222, user: "dhost".into() }, jump: None };
+    let req = ConnectRequest { target: Endpoint { host: "127.0.0.1".into(), port: 2222, user: "dhost".into() }, jump: None, connect_timeout: None };
     sessions
         .open(&OpenSshEngine::new(), broker, req, SessionLabel::default(), (80, 24), Box::new(|b| {
             if String::from_utf8_lossy(b).contains("$ ") {
