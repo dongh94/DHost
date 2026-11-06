@@ -65,6 +65,21 @@ const MIGRATIONS: &[&str] = &[
         value TEXT NOT NULL
     );
     "#,
+    // v3: 접속 이력. 명령·출력은 저장하지 않는다.
+    r#"
+    CREATE TABLE connection_history (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        server_id  TEXT,
+        title      TEXT NOT NULL,
+        target     TEXT NOT NULL,
+        via        TEXT,
+        started_at INTEGER NOT NULL,
+        ended_at   INTEGER,
+        result     TEXT NOT NULL,
+        exit_code  INTEGER
+    );
+    CREATE INDEX connection_history_started ON connection_history(started_at);
+    "#,
 ];
 
 impl Db {

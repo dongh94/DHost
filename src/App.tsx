@@ -6,6 +6,7 @@ import { StatusBar } from "./components/StatusBar";
 import { setAllFontSizes, setAllThemes } from "./lib/terminals";
 import { useApplyTheme } from "./lib/useApplyTheme";
 import { useBackendEvents } from "./lib/useBackendEvents";
+import { HistoryPage } from "./pages/HistoryPage";
 import { HostKeysPage } from "./pages/HostKeysPage";
 import { ServersPage } from "./pages/ServersPage";
 import { SessionsPage } from "./pages/SessionsPage";
@@ -35,6 +36,7 @@ export default function App() {
         <NavRail />
         <main className="min-w-0 flex-1">
           {page === "servers" && <ServersPage />}
+          {page === "history" && <HistoryPage />}
           {page === "hostkeys" && <HostKeysPage />}
           {page === "settings" && <SettingsPage />}
           {/* 세션 화면은 항상 마운트해서 다른 화면에 가도 터미널이 유지되게 한다 */}

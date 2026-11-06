@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { isTauri } from "@tauri-apps/api/core";
-import { KeyRound, Trash2 } from "lucide-react";
+import { FileDown, KeyRound, Trash2 } from "lucide-react";
 import { api, type HostKey } from "../lib/api";
-import { IconButton, PageHeader } from "../components/ui";
+import { Button, IconButton, PageHeader } from "../components/ui";
+import { KnownHostsImportDialog } from "../components/ImportDialogs";
 import { ConfirmDialog } from "../components/dialogs";
 
 /** 사용자가 승인한 호스트 키 목록. 키가 바뀐 서버는 관리자 확인 후 여기서 기존 키를 지운다. */
@@ -10,6 +11,7 @@ export function HostKeysPage() {
   const [keys, setKeys] = useState<HostKey[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [removing, setRemoving] = useState<HostKey | null>(null);
+  const [importing, setImporting] = useState(false);
 
   const load = async () => {
     if (!isTauri()) return setError("브라우저 미리보기에서는 저장소를 쓸 수 없습니다");
@@ -28,6 +30,12 @@ export function HostKeysPage() {
       <PageHeader
         title="호스트 키"
         description="접속할 때 직접 승인한 서버의 호스트 키입니다. 저장된 키와 다른 키를 보내는 서버에는 연결하지 않습니다."
+        actions={
+          <Button onClick={() => setImporting(true)} disabled={!!error}>
+            <FileDown className="h-4 w-4" />
+            known_hosts 가져오기
+          </Button>
+        }
       />
       <div className="min-h-0 flex-1 overflow-auto px-6 pb-6">
         {error ? (
@@ -68,6 +76,7 @@ export function HostKeysPage() {
           </div>
         )}
       </div>
+      {importing && <KnownHostsImportDialog onClose={() => setImporting(false)} onDone={() => void load()} />}
       {removing && (
         <ConfirmDialog
           title="호스트 키 삭제"

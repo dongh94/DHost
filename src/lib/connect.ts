@@ -83,6 +83,13 @@ export function commitPaste(key: string, text: string) {
   return true;
 }
 
+/** 인증 창에서 취소: 그 접속 시도를 끝낸다. ssh가 다시 묻지 않는다. */
+export function cancelAuth(sessionId: string) {
+  const tab = useSessions.getState().tabs.find((t) => t.sessionId === sessionId);
+  if (tab) useSessions.getState().updateTab(tab.key, { authCancelled: true });
+  void api.sessionClose(sessionId);
+}
+
 export function focusTerminal(key: string) {
   getTerminal(key)?.term.focus();
 }
@@ -90,7 +97,7 @@ export function focusTerminal(key: string) {
 /** 끊어진 탭을 사용자가 직접 다시 연결한다 (FUN-07). 이전 출력과 구분선을 넣는다. */
 export function reconnect(key: string) {
   getTerminal(key)?.term.write("\r\n\x1b[2m──────── 재접속 ────────\x1b[0m\r\n");
-  useSessions.getState().updateTab(key, { status: "connecting", sessionId: null, exitCode: null });
+  useSessions.getState().updateTab(key, { status: "connecting", sessionId: null, exitCode: null, authCancelled: false });
   void start(key);
 }
 
@@ -112,7 +119,9 @@ export function markExited(sessionId: string, exitCode: number | null) {
   }
   useSessions.getState().updateTab(tab.key, { status: "closed", exitCode });
   getTerminal(tab.key)?.term.write(
-    `\r\n\x1b[2m[연결 종료${exitCode !== null ? ` · 코드 ${exitCode}` : ""}]\x1b[0m\r\n`,
+    tab.authCancelled
+      ? "\r\n\x1b[2m[인증을 취소해 연결하지 않았습니다]\x1b[0m\r\n"
+      : `\r\n\x1b[2m[연결 종료${exitCode !== null ? ` · 코드 ${exitCode}` : ""}]\x1b[0m\r\n`,
   );
 }
 

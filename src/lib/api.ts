@@ -38,6 +38,34 @@ export interface AskpassPrompt {
   sessionId: string;
   prompt: string;
   confirm: boolean;
+  /** 저장된 서버 프로필이라 키체인에 저장할 수 있다 */
+  canSave: boolean;
+  /** 앞서 넣은 비밀번호가 틀려서 다시 묻는다 */
+  retry: boolean;
+  /** 저장돼 있던 비밀번호가 틀려서 지웠다 */
+  savedWasWrong: boolean;
+}
+
+export type HistoryResult =
+  | "connecting"
+  | "closed"
+  | "auth_failed"
+  | "hostkey_rejected"
+  | "hostkey_changed"
+  | "cancelled"
+  | "error"
+  | "interrupted";
+
+export interface HistoryEntry {
+  id: number;
+  serverId: string | null;
+  title: string;
+  target: string;
+  via: string | null;
+  startedAt: number;
+  endedAt: number | null;
+  result: HistoryResult;
+  exitCode: number | null;
 }
 
 export interface SessionExit {
@@ -88,6 +116,41 @@ export interface HostKey {
   addedAt: number;
 }
 
+export interface KnownHostCandidate {
+  host: string;
+  keyType: string;
+  key: string;
+  fingerprint: string;
+  alreadyTrusted: boolean;
+}
+
+export interface KnownHostsScan {
+  candidates: KnownHostCandidate[];
+  hashed: number;
+  skipped: number;
+}
+
+export interface ConfigCandidate {
+  alias: string;
+  host: string;
+  port: number;
+  user: string;
+  proxyJump: string | null;
+  problem: string | null;
+}
+
+export interface ImportSummary {
+  created: number;
+  skipped: [string, string][];
+  warnings: [string, string][];
+}
+
+export interface ConfigEntry {
+  key: string;
+  value: string;
+  forced: boolean;
+}
+
 function channelOf(onOutput: (bytes: Uint8Array) => void) {
   const channel = new Channel<unknown>();
   channel.onmessage = (msg) => onOutput(toBytes(msg));
@@ -120,8 +183,19 @@ export const api = {
 
   answerHostKey: (requestId: string, trust: boolean) =>
     invoke<boolean>("answer_hostkey", { requestId, trust }),
-  answerAskpass: (requestId: string, secret: string | null) =>
-    invoke<boolean>("answer_askpass", { requestId, secret }),
+  answerAskpass: (requestId: string, secret: string | null, save = false) =>
+    invoke<boolean>("answer_askpass", { requestId, secret, save }),
+  serverPasswordSaved: (id: string) => invoke<boolean>("server_password_saved", { id }),
+  serverPasswordDelete: (id: string) => invoke<void>("server_password_delete", { id }),
+  historyList: () => invoke<HistoryEntry[]>("history_list"),
+  historyClear: () => invoke<void>("history_clear"),
+  knownHostsScan: () => invoke<KnownHostsScan>("known_hosts_scan"),
+  knownHostsImport: (items: Pick<KnownHostCandidate, "host" | "keyType" | "key">[]) =>
+    invoke<number>("known_hosts_import", { items }),
+  sshConfigScan: () => invoke<ConfigCandidate[]>("ssh_config_scan"),
+  sshConfigImport: (items: ConfigCandidate[], customerId: string | null) =>
+    invoke<ImportSummary>("ssh_config_import", { items, customerId }),
+  serverEffectiveConfig: (id: string) => invoke<ConfigEntry[]>("server_effective_config", { id }),
 
   catalog: () => invoke<Catalog>("catalog"),
   customerCreate: (name: string) => invoke<Customer>("customer_create", { name }),

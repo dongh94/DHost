@@ -23,6 +23,9 @@ portable-pty = "0.9.0"
 uuid = { version = "1.29.0", features = ["v4"] }
 libc = "0.2.191"
 rusqlite = { version = "0.41.1", features = ["bundled"] }
+base64 = "0.23.1"
+sha2 = "0.11.1"
+dirs = "7.0.0"
 
 # https://tauri.app/concept/size/#cargo-configuration
 [profile.release]
@@ -31,3 +34,6 @@ lto = true
 opt-level = 3
 panic = "abort"
 strip = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework = "3.7.0"

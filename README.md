@@ -5,6 +5,7 @@
 - 요구사항: [docs/DHost_PRD_v1.0.md](docs/DHost_PRD_v1.0.md)
 - 분석·설계 메모: [docs/DHost_분석정리.md](docs/DHost_분석정리.md)
 - SSH 엔진 스파이크 결과: [docs/spike_ssh_engine.md](docs/spike_ssh_engine.md)
+- 정책 결정 기록: [docs/decisions.md](docs/decisions.md)
 
 ## 기술 스택
 
@@ -58,7 +59,11 @@ src-tauri/src/
   error.rs            오류 타입
   db.rs               SQLite 저장소와 마이그레이션 (앱 데이터 폴더/dhost.db, 권한 0600)
   profiles.rs         고객사 > 폴더 > 서버 프로필, 단일 Jump Host 규칙
-  ssh/                SSH 엔진 trait + OpenSSH 구현 (인자 구성, 입력값 검증)
+  ssh/                SSH 엔진 trait + OpenSSH 구현 (인자 구성, 입력값 검증, ssh -G)
+  secrets.rs          비밀번호 저장소 (macOS 키체인)
+  history.rs          접속 이력 (30일)
+  meta.rs             세션별 상태 (비밀번호 시도, 취소, 결과 판단)
+  sshfiles.rs         ~/.ssh/known_hosts, ~/.ssh/config 읽기
   session.rs          PTY 세션 관리
   ipc.rs              helper ↔ 앱 Unix 소켓 통신, 호스트 키 판단
   helper.rs           ssh가 실행하는 helper 모드 (KnownHostsCommand, SSH_ASKPASS)

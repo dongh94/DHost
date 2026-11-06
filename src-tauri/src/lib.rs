@@ -3,12 +3,16 @@ pub mod db;
 pub mod error;
 pub mod events;
 mod helper;
+pub mod history;
 pub mod hostkeys;
 pub mod ipc;
+pub mod meta;
 pub mod profiles;
+pub mod secrets;
 pub mod session;
 pub mod settings;
 pub mod ssh;
+pub mod sshfiles;
 
 use std::sync::Arc;
 
@@ -16,7 +20,9 @@ use tauri::Manager;
 
 use db::Db;
 use events::{EventSink, TauriSink};
+use history::HistoryStore;
 use hostkeys::HostKeyStore;
+use secrets::{KeychainStore, SecretStore};
 use ipc::Broker;
 use session::SessionManager;
 use ssh::openssh::OpenSshEngine;
@@ -29,6 +35,8 @@ pub struct AppState {
     pub engine: Box<dyn SshEngine>,
     pub db: Arc<Db>,
     pub hostkeys: Arc<HostKeyStore>,
+    pub secrets: Arc<dyn SecretStore>,
+    pub history: Arc<HistoryStore>,
     pub broker: Arc<Broker>,
     pub sessions: SessionManager,
 }
@@ -42,14 +50,21 @@ pub fn run() {
             let hostkeys = Arc::new(HostKeyStore::new(db.clone()));
             hostkeys.import_legacy_json(&data_dir.join("known_hosts.json"));
             let sink: Arc<dyn EventSink> = Arc::new(TauriSink(app.handle().clone()));
-            let broker = Broker::start(sink.clone(), hostkeys.clone())?;
+            let secrets: Arc<dyn SecretStore> = Arc::new(KeychainStore);
+            let history = Arc::new(HistoryStore::new(db.clone()));
+            if let Err(e) = history.maintain() {
+                eprintln!("[dhost] 접속 이력 정리 실패: {e}");
+            }
+            let broker = Broker::start(sink.clone(), hostkeys.clone(), secrets.clone())?;
             let exe = std::env::current_exe()?.to_string_lossy().into_owned();
             app.manage(AppState {
                 engine: Box::new(OpenSshEngine::new()),
                 db,
                 hostkeys,
+                secrets,
+                history: history.clone(),
                 broker,
-                sessions: SessionManager::new(sink, exe),
+                sessions: SessionManager::new(sink, exe, Some(history)),
             });
             Ok(())
         })
@@ -78,6 +93,15 @@ pub fn run() {
             commands::settings_get,
             commands::settings_set,
             commands::settings_reset,
+            commands::server_password_saved,
+            commands::server_password_delete,
+            commands::history_list,
+            commands::history_clear,
+            commands::known_hosts_scan,
+            commands::known_hosts_import,
+            commands::ssh_config_scan,
+            commands::ssh_config_import,
+            commands::server_effective_config,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

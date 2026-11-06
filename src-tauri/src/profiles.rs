@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::db::{now, Db};
 use crate::error::{AppError, AppResult};
+use crate::session::SessionLabel;
 use crate::ssh::{ConnectRequest, Endpoint};
 
 #[derive(Debug, Clone, Serialize)]
@@ -247,19 +248,114 @@ pub fn delete_server(db: &Db, id: &str) -> AppResult<()> {
 }
 
 /// 프로필로 접속 요청을 만든다. 경유 서버가 있으면 함께 넣는다.
-pub fn connect_request(db: &Db, id: &str) -> AppResult<ConnectRequest> {
+pub fn connect_plan(db: &Db, id: &str) -> AppResult<(ConnectRequest, SessionLabel)> {
+    plan(db, id, true)
+}
+
+/// touch가 false면 최근 접속 시각을 바꾸지 않는다 (설정 확인용).
+pub fn plan(db: &Db, id: &str, touch: bool) -> AppResult<(ConnectRequest, SessionLabel)> {
     db.with_mut(|c| {
         let s = get_server(c, id)?.ok_or_else(|| AppError::InvalidInput("서버를 찾을 수 없습니다".into()))?;
         let jump = match &s.jump_server_id {
-            Some(j) => {
-                let j = get_server(c, j)?.ok_or_else(|| AppError::InvalidInput("경유 서버를 찾을 수 없습니다".into()))?;
-                Some(Endpoint { host: j.host, port: j.port, user: j.username })
-            }
+            Some(j) => Some(get_server(c, j)?.ok_or_else(|| AppError::InvalidInput("경유 서버를 찾을 수 없습니다".into()))?),
             None => None,
         };
-        c.execute("UPDATE servers SET last_connected_at = ?2 WHERE id = ?1", params![id, now()])?;
-        Ok(ConnectRequest { target: Endpoint { host: s.host, port: s.port, user: s.username }, jump })
+        if touch {
+            c.execute("UPDATE servers SET last_connected_at = ?2 WHERE id = ?1", params![id, now()])?;
+        }
+        let label = SessionLabel {
+            title: s.name.clone(),
+            target_server_id: Some(s.id.clone()),
+            jump_server_id: jump.as_ref().map(|j| j.id.clone()),
+            jump_title: jump.as_ref().map(|j| j.name.clone()),
+        };
+        let req = ConnectRequest {
+            target: Endpoint { host: s.host, port: s.port, user: s.username },
+            jump: jump.map(|j| Endpoint { host: j.host, port: j.port, user: j.username }),
+        };
+        Ok((req, label))
     })
+}
+
+/// 접속 대상(호스트·포트·사용자)이 바뀌었는지. 바뀌면 저장된 비밀번호를 지워야 한다 (SEC-P03).
+pub fn target_changed(before: &Server, after: &Server) -> bool {
+    before.host != after.host || before.port != after.port || before.username != after.username
+}
+
+pub fn get(db: &Db, id: &str) -> AppResult<Option<Server>> {
+    db.with(|c| get_server(c, id))
+}
+
+#[derive(Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportSummary {
+    pub created: usize,
+    /// (별칭, 이유)
+    pub skipped: Vec<(String, String)>,
+    pub warnings: Vec<(String, String)>,
+}
+
+/// ~/.ssh/config 후보를 서버 프로필로 만든다. 같은 주소·포트·사용자의 서버가 이미 있으면 건너뛴다.
+/// ProxyJump가 한 단계이고 그 대상이 등록된(또는 함께 가져온) 서버면 경유 서버로 연결한다.
+pub fn import_config(
+    db: &Db,
+    items: &[crate::sshfiles::ConfigCandidate],
+    customer_id: Option<String>,
+) -> AppResult<ImportSummary> {
+    let mut summary = ImportSummary::default();
+    let mut created: Vec<(String, Server)> = vec![];
+    let existing = catalog(db)?.servers;
+
+    // 경유 서버로 쓰일 항목을 먼저 만든다.
+    let mut ordered: Vec<&crate::sshfiles::ConfigCandidate> = items.iter().filter(|i| i.proxy_jump.is_none()).collect();
+    ordered.extend(items.iter().filter(|i| i.proxy_jump.is_some()));
+
+    for item in ordered {
+        if existing.iter().any(|s| s.host == item.host && s.port == item.port && s.username == item.user) {
+            summary.skipped.push((item.alias.clone(), "같은 서버가 이미 등록되어 있습니다".into()));
+            continue;
+        }
+        let mut jump_server_id = None;
+        if let Some(pj) = item.proxy_jump.as_deref() {
+            if pj.contains(',') {
+                summary.warnings.push((item.alias.clone(), "여러 단계 경유는 지원하지 않아 경유 없이 가져왔습니다".into()));
+            } else {
+                let name = crate::sshfiles::proxy_jump_host(pj);
+                let found = created
+                    .iter()
+                    .find(|(alias, s)| *alias == name || s.host == name)
+                    .map(|(_, s)| s.clone())
+                    .or_else(|| existing.iter().find(|s| s.name == name || s.host == name).cloned());
+                match found {
+                    Some(j) if j.jump_server_id.is_none() => jump_server_id = Some(j.id),
+                    _ => summary.warnings.push((
+                        item.alias.clone(),
+                        format!("경유 서버 '{name}'를 찾지 못해 경유 없이 가져왔습니다"),
+                    )),
+                }
+            }
+        }
+        let input = ServerInput {
+            name: item.alias.clone(),
+            host: item.host.clone(),
+            port: item.port,
+            username: item.user.clone(),
+            customer_id: customer_id.clone(),
+            folder_id: None,
+            jump_server_id,
+            is_production: false,
+            favorite: false,
+            note: "~/.ssh/config에서 가져옴".into(),
+        };
+        match create_server(db, &input) {
+            Ok(s) => {
+                summary.created += 1;
+                created.push((item.alias.clone(), s));
+            }
+            Err(e) => summary.skipped.push((item.alias.clone(), e.to_string())),
+        }
+    }
+    Ok(summary)
 }
 
 #[cfg(test)]
@@ -346,9 +442,43 @@ mod tests {
         // 경유 서버로 쓰이는 서버 삭제 불가
         assert!(delete_server(&db, &bastion.id).is_err());
 
-        let req = connect_request(&db, &target.id).unwrap();
+        let (req, label) = connect_plan(&db, &target.id).unwrap();
         assert_eq!(req.jump.unwrap().host, "192.0.2.10");
+        assert_eq!(label.jump_server_id.as_deref(), Some(bastion.id.as_str()));
+        assert_eq!(label.target_server_id.as_deref(), Some(target.id.as_str()));
         assert!(catalog(&db).unwrap().servers.iter().any(|s| s.last_connected_at.is_some()));
+    }
+
+    #[test]
+    fn imports_config_with_jump() {
+        use crate::sshfiles::ConfigCandidate;
+        let db = db();
+        let c = |alias: &str, host: &str, pj: Option<&str>| ConfigCandidate {
+            alias: alias.into(),
+            host: host.into(),
+            port: 22,
+            user: "ops".into(),
+            proxy_jump: pj.map(Into::into),
+            problem: None,
+        };
+        // 경유 대상이 목록에서 뒤에 와도 연결된다
+        let items = vec![
+            c("web", "192.0.2.20", Some("bastion")),
+            c("bastion", "192.0.2.1", None),
+            c("deep", "192.0.2.30", Some("a,b")),
+            c("lost", "192.0.2.40", Some("nowhere")),
+        ];
+        let sum = import_config(&db, &items, None).unwrap();
+        assert_eq!(sum.created, 4);
+        assert_eq!(sum.warnings.len(), 2);
+        let cat = catalog(&db).unwrap();
+        let bastion = cat.servers.iter().find(|s| s.name == "bastion").unwrap();
+        let web = cat.servers.iter().find(|s| s.name == "web").unwrap();
+        assert_eq!(web.jump_server_id.as_deref(), Some(bastion.id.as_str()));
+        // 다시 가져오면 중복으로 건너뛴다
+        let again = import_config(&db, &items, None).unwrap();
+        assert_eq!(again.created, 0);
+        assert_eq!(again.skipped.len(), 4);
     }
 
     #[test]

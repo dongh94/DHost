@@ -1,9 +1,11 @@
-import { useMemo, useState, type FormEvent } from "react";
-import { Plus } from "lucide-react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { isTauri } from "@tauri-apps/api/core";
+import { KeyRound, ListTree, Plus } from "lucide-react";
 import { api, type Server, type ServerInput } from "../lib/api";
 import { useCatalog } from "../stores/catalog";
 import { Button, Field, Input, Modal, Select, inputCls } from "./ui";
 import { NameDialog } from "./dialogs";
+import { EffectiveConfigDialog } from "./ImportDialogs";
 
 const empty: ServerInput = {
   name: "",
@@ -33,6 +35,14 @@ export function ServerDialog({
   const [port, setPort] = useState(String(v.port));
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState<"customer" | "folder" | null>(null);
+  const [passwordSaved, setPasswordSaved] = useState(false);
+  const [showConfig, setShowConfig] = useState(false);
+
+  useEffect(() => {
+    if (server && isTauri()) api.serverPasswordSaved(server.id).then(setPasswordSaved).catch(() => {});
+  }, [server]);
+  const targetChanged =
+    !!server && (v.host !== server.host || Number(port) !== server.port || v.username !== server.username);
 
   const set = <K extends keyof ServerInput>(k: K, val: ServerInput[K]) => setV((p) => ({ ...p, [k]: val }));
   const customerFolders = folders.filter((f) => f.customerId === v.customerId);
@@ -153,6 +163,29 @@ export function ServerDialog({
             </span>
           </label>
 
+          {server && passwordSaved && (
+            <div className="flex items-center justify-between gap-3 rounded-md border border-line p-3">
+              <span className="flex items-center gap-2 text-sm text-fg">
+                <KeyRound className="h-4 w-4 text-fg-subtle" />
+                {targetChanged
+                  ? "접속 대상이 바뀌어 저장하면 키체인의 비밀번호가 지워집니다."
+                  : "비밀번호가 macOS 키체인에 저장되어 있습니다."}
+              </span>
+              {!targetChanged && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={async () => {
+                    await api.serverPasswordDelete(server.id);
+                    setPasswordSaved(false);
+                  }}
+                >
+                  삭제
+                </Button>
+              )}
+            </div>
+          )}
+
           <Field label="메모">
             <textarea
               className={`${inputCls} h-16 resize-none`}
@@ -166,6 +199,12 @@ export function ServerDialog({
           {error && <p className="text-xs text-red-600">{error}</p>}
         </form>
         <div className="-mx-5 -mb-4 mt-4 flex justify-end gap-2 border-t border-line bg-canvas px-5 py-3">
+          {server && (
+            <Button type="button" variant="ghost" className="mr-auto" onClick={() => setShowConfig(true)}>
+              <ListTree className="h-4 w-4" />
+              실제 적용값 보기
+            </Button>
+          )}
           <Button type="button" onClick={onClose}>
             취소
           </Button>
@@ -175,6 +214,9 @@ export function ServerDialog({
         </div>
       </Modal>
 
+      {showConfig && server && (
+        <EffectiveConfigDialog serverId={server.id} name={server.name} onClose={() => setShowConfig(false)} />
+      )}
       {adding === "customer" && (
         <NameDialog
           title="고객사 추가"

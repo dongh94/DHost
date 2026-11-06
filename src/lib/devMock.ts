@@ -51,6 +51,41 @@ export function installDevMock() {
           return { name: "openssh", version: "OpenSSH_10.3p1 (mock)", supported: true };
         case "catalog":
           return structuredClone(catalog);
+        case "history_list":
+          return [
+            { id: 3, serverId: "s2", title: "web-01", target: "ops@192.0.2.11:22", via: "bastion", startedAt: now - 7200, endedAt: now - 5400, result: "closed", exitCode: 0 },
+            { id: 2, serverId: "s2", title: "web-01", target: "ops@192.0.2.11:22", via: "bastion", startedAt: now - 7300, endedAt: now - 7290, result: "auth_failed", exitCode: 255 },
+            { id: 1, serverId: "s5", title: "gw-01", target: "ops@198.51.100.5:22", via: null, startedAt: now - 86400, endedAt: now - 86398, result: "hostkey_changed", exitCode: 255 },
+          ];
+        case "known_hosts_scan":
+          return {
+            candidates: [
+              { host: "bastion.example.com", keyType: "ssh-ed25519", key: "AAAA...", fingerprint: hostKeys[0].fingerprint, alreadyTrusted: true },
+              { host: "[192.0.2.21]:2222", keyType: "ssh-ed25519", key: "BBBB...", fingerprint: "SHA256:example1111111111111111111111111111111111", alreadyTrusted: false },
+              { host: "198.51.100.5", keyType: "ecdsa-sha2-nistp256", key: "CCCC...", fingerprint: "SHA256:example2222222222222222222222222222222222", alreadyTrusted: false },
+            ],
+            hashed: 4,
+            skipped: 1,
+          };
+        case "ssh_config_scan":
+          return [
+            { alias: "jump", host: "192.0.2.1", port: 22, user: "ops", proxyJump: null, problem: null },
+            { alias: "app-01", host: "192.0.2.31", port: 22, user: "ops", proxyJump: "jump", problem: null },
+            { alias: "far", host: "192.0.2.41", port: 22, user: "ops", proxyJump: "a,b", problem: "여러 단계 경유는 지원하지 않아 경유 없이 가져옵니다" },
+          ];
+        case "server_effective_config":
+          return [
+            { key: "hostname", value: "192.0.2.11", forced: false },
+            { key: "user", value: "ops", forced: true },
+            { key: "port", value: "22", forced: true },
+            { key: "identityfile", value: "~/.ssh/id_ed25519", forced: false },
+            { key: "stricthostkeychecking", value: "true", forced: true },
+            { key: "userknownhostsfile", value: "none", forced: true },
+            { key: "proxycommand", value: "/usr/bin/ssh ... -W [%h]:%p -- 'bastion.example.com'", forced: true },
+            { key: "ciphers", value: "chacha20-poly1305@openssh.com,aes128-ctr", forced: false },
+          ];
+        case "server_password_saved":
+          return a.id === "s1";
         case "settings_get":
           return {};
         case "hostkey_list":

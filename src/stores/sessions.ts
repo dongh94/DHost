@@ -18,6 +18,8 @@ export interface SessionTab {
   sessionId: string | null;
   status: SessionStatus;
   exitCode: number | null;
+  /** 사용자가 인증 창에서 취소했다 */
+  authCancelled?: boolean;
 }
 
 export type Prompt =

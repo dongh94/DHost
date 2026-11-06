@@ -4,6 +4,7 @@ import {
   ChevronDown,
   ChevronRight,
   FolderClosed,
+  FileDown,
   FolderPlus,
   Pencil,
   Play,
@@ -22,12 +23,14 @@ import { Badge, Button, IconButton, PageHeader } from "../components/ui";
 import { ServerDialog } from "../components/ServerDialog";
 import { QuickConnectDialog } from "../components/QuickConnectDialog";
 import { ConfirmDialog, NameDialog } from "../components/dialogs";
+import { SshConfigImportDialog } from "../components/ImportDialogs";
 
 type Filter = "all" | "favorite" | "production";
 
 type Dialog =
   | { kind: "server"; server?: Server; customerId?: string | null; folderId?: string | null }
   | { kind: "quick" }
+  | { kind: "importConfig" }
   | { kind: "deleteServer"; server: Server }
   | { kind: "customer"; id?: string; name?: string }
   | { kind: "deleteCustomer"; id: string; name: string }
@@ -202,6 +205,10 @@ export function ServersPage() {
         description="고객사와 폴더별로 서버를 관리합니다. 행을 더블클릭하거나 ▶를 누르면 연결합니다."
         actions={
           <>
+            <Button onClick={() => setDialog({ kind: "importConfig" })} title="~/.ssh/config에서 가져오기">
+              <FileDown className="h-4 w-4" />
+              가져오기
+            </Button>
             <Button onClick={() => setDialog({ kind: "customer" })}>
               <Building2 className="h-4 w-4" />
               고객사 추가
@@ -372,6 +379,7 @@ export function ServersPage() {
         />
       )}
       {dialog?.kind === "quick" && <QuickConnectDialog onClose={() => setDialog(null)} />}
+      {dialog?.kind === "importConfig" && <SshConfigImportDialog onClose={() => setDialog(null)} />}
       {dialog?.kind === "deleteServer" && (
         <ConfirmDialog
           title="서버 삭제"

@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-export type Page = "servers" | "sessions" | "hostkeys" | "settings";
+export type Page = "servers" | "sessions" | "history" | "hostkeys" | "settings";
 
 interface UiState {
   page: Page;

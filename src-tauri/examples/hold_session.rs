@@ -8,7 +8,8 @@ use dhost_lib::db::Db;
 use dhost_lib::events::{AppEvent, EventSink};
 use dhost_lib::hostkeys::HostKeyStore;
 use dhost_lib::ipc::{Answer, Broker};
-use dhost_lib::session::SessionManager;
+use dhost_lib::secrets::MemoryStore;
+use dhost_lib::session::{SessionLabel, SessionManager};
 use dhost_lib::ssh::openssh::OpenSshEngine;
 use dhost_lib::ssh::{ConnectRequest, Endpoint};
 
@@ -20,7 +21,7 @@ impl EventSink for AutoSink {
         match event {
             AppEvent::HostKeyPrompt(p) => drop(b.answer(&p.request_id, Answer::HostKey(true))),
             // dev/test-env의 가상 테스트 비밀번호
-            AppEvent::AskpassPrompt(p) => drop(b.answer(&p.request_id, Answer::Secret(Some("dhost-test-pw".into())))),
+            AppEvent::AskpassPrompt(p) => drop(b.answer(&p.request_id, Answer::Secret { secret: Some("dhost-test-pw".into()), save: false })),
             AppEvent::SessionExit(_) => std::process::exit(2),
             _ => {}
         }
@@ -31,12 +32,12 @@ fn main() {
     let helper = std::env::args().nth(1).expect("usage: hold_session <path to target/debug/dhost>");
     let store = std::env::temp_dir().join(format!("dhost-hold-{}.db", std::process::id()));
     let sink = Arc::new(AutoSink(OnceLock::new()));
-    let broker = Broker::start(sink.clone(), Arc::new(HostKeyStore::new(Db::open(&store).unwrap()))).unwrap();
+    let broker = Broker::start(sink.clone(), Arc::new(HostKeyStore::new(Db::open(&store).unwrap())), Arc::new(MemoryStore::default())).unwrap();
     sink.0.set(Arc::downgrade(&broker)).unwrap();
-    let sessions = SessionManager::new(sink, helper);
+    let sessions = SessionManager::new(sink, helper, None);
     let req = ConnectRequest { target: Endpoint { host: "127.0.0.1".into(), port: 2222, user: "dhost".into() }, jump: None };
     sessions
-        .open(&OpenSshEngine::new(), broker, req, (80, 24), Box::new(|b| {
+        .open(&OpenSshEngine::new(), broker, req, SessionLabel::default(), (80, 24), Box::new(|b| {
             if String::from_utf8_lossy(b).contains("$ ") {
                 println!("READY");
             }

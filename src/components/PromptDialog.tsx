@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { api } from "../lib/api";
+import { cancelAuth } from "../lib/connect";
 import { useSessions } from "../stores/sessions";
 import { PasteDialog } from "./PasteDialog";
 
@@ -38,10 +39,12 @@ export function PromptDialog() {
   const prompt = useSessions((s) => s.prompts[0]);
   const shift = useSessions((s) => s.shiftPrompt);
   const [secret, setSecret] = useState("");
+  const [save, setSave] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setSecret("");
+    setSave(false);
     inputRef.current?.focus();
   }, [prompt]);
 
@@ -112,7 +115,9 @@ export function PromptDialog() {
 
   const p = prompt.data;
   const reply = (value: string | null) => {
-    void api.answerAskpass(p.requestId, value);
+    void api.answerAskpass(p.requestId, value, value !== null && save);
+    // 취소하면 그 접속 시도를 끝낸다. ssh가 비밀번호를 다시 묻지 않는다.
+    if (value === null) cancelAuth(p.sessionId);
     setSecret("");
     shift();
   };
@@ -140,6 +145,13 @@ export function PromptDialog() {
   return (
     <Shell title="인증 정보 입력">
       <form onSubmit={submit} className="space-y-3 text-sm">
+        {p.retry && (
+          <p className="rounded-md bg-amber-50 px-3 py-2 text-amber-800 dark:bg-amber-950 dark:text-amber-200">
+            {p.savedWasWrong
+              ? "저장된 비밀번호로 로그인하지 못해 저장된 비밀번호를 지웠습니다. 다시 입력하세요."
+              : "비밀번호가 맞지 않습니다. 다시 입력하세요."}
+          </p>
+        )}
         <p className="whitespace-pre-wrap">{p.prompt}</p>
         <input
           ref={inputRef}
@@ -149,6 +161,12 @@ export function PromptDialog() {
           onChange={(e) => setSecret(e.target.value)}
           className="w-full rounded-md border border-line bg-surface px-2 py-1.5 text-fg focus:border-brand-500 focus:outline-none"
         />
+        {p.canSave && (
+          <label className="flex items-center gap-2 text-xs text-fg-muted">
+            <input type="checkbox" checked={save} onChange={(e) => setSave(e.target.checked)} />
+            이 서버의 비밀번호를 macOS 키체인에 저장
+          </label>
+        )}
         <div className="flex justify-end gap-2">
           <button type="button" className={btnGhost} onClick={() => reply(null)}>
             취소

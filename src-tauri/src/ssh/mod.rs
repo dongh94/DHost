@@ -54,7 +54,19 @@ pub trait SshEngine: Send + Sync {
     /// PTY에서 실행할 명령을 만든다.
     fn build_command(&self, req: &ConnectRequest, ctx: &HelperContext) -> AppResult<CommandBuilder>;
 
+    /// 실제로 적용될 ssh 설정을 보여준다 (`ssh -G`, SEC-P02). 연결하지 않는다.
+    fn effective_config(&self, req: &ConnectRequest, ctx: &HelperContext) -> AppResult<Vec<ConfigEntry>>;
+
     fn clone_box(&self) -> Box<dyn SshEngine>;
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigEntry {
+    pub key: String,
+    pub value: String,
+    /// DHost가 보안을 위해 직접 정하는 값 (사용자 ssh_config보다 우선)
+    pub forced: bool,
 }
 
 impl Endpoint {

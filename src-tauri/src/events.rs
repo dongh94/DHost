@@ -29,6 +29,12 @@ pub struct AskpassPrompt {
     pub session_id: String,
     pub prompt: String,
     pub confirm: bool,
+    /// 저장된 서버 프로필의 비밀번호 질문이라 키체인에 저장할 수 있다
+    pub can_save: bool,
+    /// 앞서 넣은 비밀번호가 틀려서 다시 묻는다
+    pub retry: bool,
+    /// 저장돼 있던 비밀번호가 틀려서 지웠다
+    pub saved_was_wrong: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]

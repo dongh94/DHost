@@ -10,12 +10,14 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
 use crate::events::{AppEvent, AskpassPrompt, EventSink, HostKeyChanged, HostKeyPrompt};
 use crate::hostkeys::HostKeyStore;
+use crate::meta::SessionMeta;
+use crate::secrets::SecretStore;
 
 /// 사용자가 응답하지 않으면 이 시간 뒤 거절로 처리한다.
 const PROMPT_TIMEOUT: Duration = Duration::from_secs(300);
@@ -46,21 +48,27 @@ pub enum HelperResponse {
 
 pub enum Answer {
     HostKey(bool),
-    Secret(Option<String>),
+    /// None이면 취소. save는 키체인에 저장할지 여부
+    Secret { secret: Option<String>, save: bool },
 }
 
 pub struct Broker {
     pub socket_path: PathBuf,
     sink: Arc<dyn EventSink>,
     hostkeys: Arc<HostKeyStore>,
-    /// 세션 토큰 -> 세션 ID
-    tokens: Mutex<HashMap<String, String>>,
+    secrets: Arc<dyn SecretStore>,
+    /// 세션 토큰 -> 세션 정보
+    tokens: Mutex<HashMap<String, Arc<SessionMeta>>>,
     /// 화면 응답을 기다리는 요청 ID -> 응답 채널
     pending: Mutex<HashMap<String, mpsc::Sender<Answer>>>,
 }
 
 impl Broker {
-    pub fn start(sink: Arc<dyn EventSink>, hostkeys: Arc<HostKeyStore>) -> std::io::Result<Arc<Self>> {
+    pub fn start(
+        sink: Arc<dyn EventSink>,
+        hostkeys: Arc<HostKeyStore>,
+        secrets: Arc<dyn SecretStore>,
+    ) -> std::io::Result<Arc<Self>> {
         sweep_stale_dirs();
         // 다른 사용자가 접근할 수 없는 폴더에 소켓을 만든다.
         let nonce = uuid::Uuid::new_v4().simple().to_string();
@@ -76,6 +84,7 @@ impl Broker {
             socket_path,
             sink,
             hostkeys,
+            secrets,
             tokens: Mutex::new(HashMap::new()),
             pending: Mutex::new(HashMap::new()),
         });
@@ -94,8 +103,8 @@ impl Broker {
         Ok(broker)
     }
 
-    pub fn register_session(&self, token: &str, session_id: &str) {
-        self.tokens.lock().unwrap().insert(token.into(), session_id.into());
+    pub fn register_session(&self, token: &str, meta: Arc<SessionMeta>) {
+        self.tokens.lock().unwrap().insert(token.into(), meta);
     }
 
     pub fn unregister_session(&self, token: &str) {
@@ -122,42 +131,107 @@ impl Broker {
         (&stream).write_all(out.as_bytes())
     }
 
-    fn session_for(&self, token: &str) -> Option<String> {
+    fn session_for(&self, token: &str) -> Option<Arc<SessionMeta>> {
         self.tokens.lock().unwrap().get(token).cloned()
+    }
+
+    pub fn secrets(&self) -> &Arc<dyn SecretStore> {
+        &self.secrets
     }
 
     fn dispatch(&self, req: HelperRequest) -> HelperResponse {
         match req {
             HelperRequest::KnownHosts { token, reason, host, key_type, key, fingerprint } => {
-                let Some(session_id) = self.session_for(&token) else {
+                let Some(meta) = self.session_for(&token) else {
                     return HelperResponse::Denied;
                 };
-                let lines = self.known_hosts(&session_id, &reason, &host, &key_type, &key, &fingerprint);
+                let lines = self.known_hosts(&meta, &reason, &host, &key_type, &key, &fingerprint);
                 HelperResponse::KnownHosts { lines }
             }
             HelperRequest::Askpass { token, prompt, confirm } => {
-                let Some(session_id) = self.session_for(&token) else {
+                let Some(meta) = self.session_for(&token) else {
                     return HelperResponse::Denied;
                 };
-                let (request_id, rx) = self.new_pending();
-                self.sink.emit(AppEvent::AskpassPrompt(AskpassPrompt {
-                    request_id: request_id.clone(),
-                    session_id,
-                    prompt,
-                    confirm,
-                }));
-                let secret = match self.wait(&request_id, rx) {
-                    Some(Answer::Secret(s)) => s,
-                    _ => None,
-                };
-                HelperResponse::Askpass { secret }
+                HelperResponse::Askpass { secret: self.askpass(&meta, prompt, confirm) }
+            }
+        }
+    }
+
+    /// 비밀번호 질문 처리.
+    /// - 사용자가 한 번 취소하면 그 세션의 이후 질문은 묻지 않고 거절한다 (ssh가 다시 묻지 않게).
+    /// - 저장된 비밀번호는 구간마다 첫 질문에만 자동으로 넣는다. 틀리면 지우고 사람에게 묻는다.
+    fn askpass(&self, meta: &SessionMeta, prompt: String, confirm: bool) -> Option<String> {
+        let hop = if confirm { None } else { meta.hop_for_prompt(&prompt) };
+        let server_id = hop.and_then(|i| meta.hops[i].server_id.clone());
+
+        let (retry, saved_was_wrong) = {
+            let mut f = meta.flags.lock().unwrap();
+            if f.auth_cancelled {
+                return None;
+            }
+            match hop {
+                // 키 암호·확인 질문 등 구간을 알 수 없는 질문은 저장·자동 입력 없이 그대로 묻는다.
+                None => (false, false),
+                Some(i) => {
+                    let count = {
+                        let c = f.password_prompts.entry(i).or_insert(0);
+                        *c += 1;
+                        *c
+                    };
+                    let mut saved_was_wrong = false;
+                    if count > 1 {
+                        // 앞서 넣은 비밀번호가 틀렸다. 자동 입력했거나 방금 저장한 것이면 지운다.
+                        let was_auto = f.autofilled.remove(&i);
+                        let was_saved = f.saved_at.remove(&i).is_some();
+                        if was_auto || was_saved {
+                            if let Some(id) = &server_id {
+                                self.secrets.delete(id);
+                            }
+                            saved_was_wrong = was_auto;
+                        }
+                    } else if let Some(id) = &server_id {
+                        if let Some(pw) = self.secrets.get(id) {
+                            f.autofilled.insert(i);
+                            return Some(pw);
+                        }
+                    }
+                    (count > 1, saved_was_wrong)
+                }
+            }
+        };
+
+        let (request_id, rx) = self.new_pending();
+        self.sink.emit(AppEvent::AskpassPrompt(AskpassPrompt {
+            request_id: request_id.clone(),
+            session_id: meta.session_id.clone(),
+            prompt,
+            confirm,
+            can_save: server_id.is_some(),
+            retry,
+            saved_was_wrong,
+        }));
+        match self.wait(&request_id, rx) {
+            Some(Answer::Secret { secret: Some(s), save }) => {
+                if let (true, Some(id), Some(i)) = (save, &server_id, hop) {
+                    match self.secrets.set(id, &s) {
+                        Ok(()) => {
+                            meta.flags.lock().unwrap().saved_at.insert(i, Instant::now());
+                        }
+                        Err(e) => eprintln!("[dhost ipc] {e}"),
+                    }
+                }
+                Some(s)
+            }
+            _ => {
+                meta.flags.lock().unwrap().auth_cancelled = true;
+                None
             }
         }
     }
 
     fn known_hosts(
         &self,
-        session_id: &str,
+        meta: &SessionMeta,
         reason: &str,
         host: &str,
         key_type: &str,
@@ -183,8 +257,9 @@ impl Broker {
         }
         if !known.is_empty() {
             // 저장된 키와 다르다. 저장된 키를 돌려주면 ssh가 연결을 차단한다 (FUN-04).
+            meta.flags.lock().unwrap().hostkey_changed = true;
             self.sink.emit(AppEvent::HostKeyChanged(HostKeyChanged {
-                    session_id: session_id.into(),
+                    session_id: meta.session_id.clone(),
                     host: host.into(),
                     key_type: key_type.into(),
                     fingerprint: fingerprint.into(),
@@ -197,7 +272,7 @@ impl Broker {
         let (request_id, rx) = self.new_pending();
         self.sink.emit(AppEvent::HostKeyPrompt(HostKeyPrompt {
                 request_id: request_id.clone(),
-                session_id: session_id.into(),
+                session_id: meta.session_id.clone(),
                 host: host.into(),
                 key_type: key_type.into(),
             fingerprint: fingerprint.into(),
@@ -210,7 +285,10 @@ impl Broker {
                     vec![]
                 }
             },
-            _ => vec![],
+            _ => {
+                meta.flags.lock().unwrap().hostkey_rejected = true;
+                vec![]
+            }
         }
     }
 

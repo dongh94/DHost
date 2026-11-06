@@ -5,6 +5,8 @@ use crate::error::{AppError, AppResult};
 use crate::hostkeys::HostKey;
 use crate::ipc::Answer;
 use crate::profiles::{self, Catalog, Customer, Folder, Server, ServerInput};
+use crate::history::HistoryEntry;
+use crate::session::SessionLabel;
 use crate::ssh::{ConnectRequest, EngineInfo};
 use crate::AppState;
 
@@ -27,15 +29,29 @@ pub fn session_open(
     rows: u16,
     on_output: Channel<InvokeResponseBody>,
 ) -> AppResult<String> {
-    state
-        .sessions
-        .open(
-            state.engine.as_ref(),
-            state.broker.clone(),
-            request,
-            (cols, rows),
-            Box::new(move |bytes| on_output.send(InvokeResponseBody::Raw(bytes.to_vec())).is_ok()),
-        )
+    let label = SessionLabel {
+        title: format!("{}@{}", request.target.user, request.target.host),
+        ..Default::default()
+    };
+    open_with(state, request, label, cols, rows, on_output)
+}
+
+fn open_with(
+    state: State<'_, AppState>,
+    request: ConnectRequest,
+    label: SessionLabel,
+    cols: u16,
+    rows: u16,
+    on_output: Channel<InvokeResponseBody>,
+) -> AppResult<String> {
+    state.sessions.open(
+        state.engine.as_ref(),
+        state.broker.clone(),
+        request,
+        label,
+        (cols, rows),
+        Box::new(move |bytes| on_output.send(InvokeResponseBody::Raw(bytes.to_vec())).is_ok()),
+    )
 }
 
 /// 저장된 서버 프로필로 접속한다. 경유 서버 설정도 프로필에서 가져온다.
@@ -47,8 +63,8 @@ pub fn server_connect(
     rows: u16,
     on_output: Channel<InvokeResponseBody>,
 ) -> AppResult<String> {
-    let request = profiles::connect_request(&state.db, &server_id)?;
-    session_open(state, request, cols, rows, on_output)
+    let (request, label) = profiles::connect_plan(&state.db, &server_id)?;
+    open_with(state, request, label, cols, rows, on_output)
 }
 
 #[tauri::command]
@@ -72,8 +88,8 @@ pub fn answer_hostkey(state: State<'_, AppState>, request_id: String, trust: boo
 }
 
 #[tauri::command]
-pub fn answer_askpass(state: State<'_, AppState>, request_id: String, secret: Option<String>) -> bool {
-    state.broker.answer(&request_id, Answer::Secret(secret))
+pub fn answer_askpass(state: State<'_, AppState>, request_id: String, secret: Option<String>, save: bool) -> bool {
+    state.broker.answer(&request_id, Answer::Secret { secret, save })
 }
 
 #[tauri::command]
@@ -118,7 +134,13 @@ pub fn server_create(state: State<'_, AppState>, input: ServerInput) -> AppResul
 
 #[tauri::command]
 pub fn server_update(state: State<'_, AppState>, id: String, input: ServerInput) -> AppResult<Server> {
-    profiles::update_server(&state.db, &id, &input)
+    let before = profiles::get(&state.db, &id)?;
+    let after = profiles::update_server(&state.db, &id, &input)?;
+    // 접속 대상이 바뀌면 저장된 비밀번호를 지운다 (다른 서버에 잘못 쓰이지 않게).
+    if before.is_some_and(|b| profiles::target_changed(&b, &after)) {
+        state.secrets.delete(&id);
+    }
+    Ok(after)
 }
 
 #[tauri::command]
@@ -128,7 +150,29 @@ pub fn server_set_favorite(state: State<'_, AppState>, id: String, favorite: boo
 
 #[tauri::command]
 pub fn server_delete(state: State<'_, AppState>, id: String) -> AppResult<()> {
-    profiles::delete_server(&state.db, &id)
+    profiles::delete_server(&state.db, &id)?;
+    state.secrets.delete(&id);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn server_password_saved(state: State<'_, AppState>, id: String) -> bool {
+    state.secrets.has(&id)
+}
+
+#[tauri::command]
+pub fn server_password_delete(state: State<'_, AppState>, id: String) {
+    state.secrets.delete(&id)
+}
+
+#[tauri::command]
+pub fn history_list(state: State<'_, AppState>) -> AppResult<Vec<HistoryEntry>> {
+    state.history.list(500)
+}
+
+#[tauri::command]
+pub fn history_clear(state: State<'_, AppState>) -> AppResult<()> {
+    state.history.clear()
 }
 
 #[tauri::command]
@@ -154,4 +198,87 @@ pub fn settings_set(state: State<'_, AppState>, key: String, value: String) -> A
 #[tauri::command]
 pub fn settings_reset(state: State<'_, AppState>) -> AppResult<()> {
     crate::settings::reset(&state.db)
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnownHostsScanView {
+    pub candidates: Vec<KnownHostView>,
+    pub hashed: usize,
+    pub skipped: usize,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnownHostView {
+    #[serde(flatten)]
+    pub item: crate::sshfiles::KnownHostCandidate,
+    pub already_trusted: bool,
+}
+
+/// ~/.ssh/known_hosts를 읽어 가져올 수 있는 항목을 보여준다. 아무것도 저장하지 않는다.
+#[tauri::command]
+pub fn known_hosts_scan(state: State<'_, AppState>) -> AppResult<KnownHostsScanView> {
+    let scan = crate::sshfiles::scan_known_hosts()?;
+    let trusted = state.hostkeys.list()?;
+    Ok(KnownHostsScanView {
+        candidates: scan
+            .candidates
+            .into_iter()
+            .map(|c| {
+                let already_trusted = trusted.iter().any(|t| t.host == c.host && t.key == c.key);
+                KnownHostView { item: c, already_trusted }
+            })
+            .collect(),
+        hashed: scan.hashed,
+        skipped: scan.skipped,
+    })
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnownHostImport {
+    pub host: String,
+    pub key_type: String,
+    pub key: String,
+}
+
+/// 사용자가 고른 항목만 가져온다. 지문은 앱에서 다시 계산한다.
+#[tauri::command]
+pub fn known_hosts_import(state: State<'_, AppState>, items: Vec<KnownHostImport>) -> AppResult<usize> {
+    let mut n = 0;
+    for i in items {
+        let Some(fp) = crate::sshfiles::fingerprint(&i.key) else { continue };
+        state.hostkeys.add(&i.host, &i.key_type, &i.key, &fp)?;
+        n += 1;
+    }
+    Ok(n)
+}
+
+#[tauri::command]
+pub async fn ssh_config_scan() -> AppResult<Vec<crate::sshfiles::ConfigCandidate>> {
+    tauri::async_runtime::spawn_blocking(crate::sshfiles::scan_config)
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?
+}
+
+#[tauri::command]
+pub fn ssh_config_import(
+    state: State<'_, AppState>,
+    items: Vec<crate::sshfiles::ConfigCandidate>,
+    customer_id: Option<String>,
+) -> AppResult<profiles::ImportSummary> {
+    profiles::import_config(&state.db, &items, customer_id)
+}
+
+/// 서버에 접속할 때 실제로 적용될 ssh 설정 (SEC-P02). 접속하지 않는다.
+#[tauri::command]
+pub fn server_effective_config(state: State<'_, AppState>, id: String) -> AppResult<Vec<crate::ssh::ConfigEntry>> {
+    let (request, _) = profiles::plan(&state.db, &id, false)?;
+    let ctx = crate::ssh::HelperContext {
+        exe: std::env::current_exe().map_err(|e| AppError::Internal(e.to_string()))?.to_string_lossy().into_owned(),
+        socket_path: String::new(),
+        session_token: String::new(),
+    };
+    state.engine.effective_config(&request, &ctx)
 }

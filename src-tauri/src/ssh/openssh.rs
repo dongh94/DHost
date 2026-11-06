@@ -2,7 +2,7 @@ use std::process::Command;
 
 use portable_pty::CommandBuilder;
 
-use super::{ConnectRequest, EngineInfo, HelperContext, SshEngine};
+use super::{ConfigEntry, ConnectRequest, EngineInfo, HelperContext, SshEngine};
 use crate::error::{AppError, AppResult};
 
 /// KnownHostsCommand는 OpenSSH 8.5, SSH_ASKPASS_REQUIRE는 8.4부터 지원된다.
@@ -52,10 +52,45 @@ impl SshEngine for OpenSshEngine {
         Ok(cmd)
     }
 
+    fn effective_config(&self, req: &ConnectRequest, ctx: &HelperContext) -> AppResult<Vec<ConfigEntry>> {
+        let mut args = build_args(req, ctx)?;
+        args.insert(0, "-G".into());
+        let output = Command::new(SSH_PATH)
+            .args(&args)
+            .output()
+            .map_err(|e| AppError::Internal(format!("ssh -G 실행 실패: {e}")))?;
+        if !output.status.success() {
+            return Err(AppError::Internal(String::from_utf8_lossy(&output.stderr).trim().to_string()));
+        }
+        Ok(crate::sshfiles::parse_ssh_g(&String::from_utf8_lossy(&output.stdout))
+            .into_iter()
+            .map(|(key, value)| {
+                let forced = FORCED_KEYS.contains(&key.as_str());
+                ConfigEntry { key, value, forced }
+            })
+            .collect())
+    }
+
     fn clone_box(&self) -> Box<dyn SshEngine> {
         Box::new(self.clone())
     }
 }
+
+/// DHost가 항상 직접 정하는 설정 (`ssh -G` 출력의 소문자 키)
+const FORCED_KEYS: &[&str] = &[
+    "stricthostkeychecking",
+    "userknownhostsfile",
+    "globalknownhostsfile",
+    "updatehostkeys",
+    "checkhostip",
+    "controlmaster",
+    "controlpath",
+    "knownhostscommand",
+    "proxyjump",
+    "proxycommand",
+    "port",
+    "user",
+];
 
 /// 호스트 키 검증을 DHost가 전담하게 하는 공통 옵션.
 /// 사용자 known_hosts는 읽지도 쓰지도 않는다 (스파이크 기준, 정책 결정 필요).

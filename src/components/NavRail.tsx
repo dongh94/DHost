@@ -1,4 +1,4 @@
-import { KeyRound, Server, Settings, SquareTerminal } from "lucide-react";
+import { History, KeyRound, Server, Settings, SquareTerminal } from "lucide-react";
 import type { ReactNode } from "react";
 import { useSessions } from "../stores/sessions";
 import { useUi, type Page } from "../stores/ui";
@@ -30,6 +30,7 @@ export function NavRail() {
     <nav className="flex w-52 shrink-0 flex-col gap-0.5 border-r border-line bg-chrome p-2">
       <Item page="servers" icon={<Server className={cls} />} label="서버" />
       <Item page="sessions" icon={<SquareTerminal className={cls} />} label="세션" badge={open} />
+      <Item page="history" icon={<History className={cls} />} label="접속 이력" />
       <Item page="hostkeys" icon={<KeyRound className={cls} />} label="호스트 키" />
       <div className="flex-1" />
       <Item page="settings" icon={<Settings className={cls} />} label="설정" />

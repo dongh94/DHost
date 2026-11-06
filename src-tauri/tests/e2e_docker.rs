@@ -9,9 +9,11 @@ use std::time::{Duration, Instant};
 
 use dhost_lib::db::Db;
 use dhost_lib::events::{AppEvent, EventSink};
+use dhost_lib::history::HistoryStore;
 use dhost_lib::hostkeys::HostKeyStore;
 use dhost_lib::ipc::{Answer, Broker};
-use dhost_lib::session::SessionManager;
+use dhost_lib::secrets::{MemoryStore, SecretStore};
+use dhost_lib::session::{SessionLabel, SessionManager};
 use dhost_lib::ssh::openssh::OpenSshEngine;
 use dhost_lib::ssh::{ConnectRequest, Endpoint};
 
@@ -24,10 +26,28 @@ enum HostKeyPolicy {
     Reject,
 }
 
+#[derive(Clone)]
+enum AskpassPolicy {
+    Answer { password: String, save: bool },
+    Cancel,
+}
+
 struct TestSink {
     broker: OnceLock<Weak<Broker>>,
     policy: HostKeyPolicy,
+    askpass: Mutex<AskpassPolicy>,
     events: Mutex<Vec<AppEvent>>,
+}
+
+impl TestSink {
+    fn new(policy: HostKeyPolicy) -> Arc<Self> {
+        Arc::new(Self {
+            broker: OnceLock::new(),
+            policy,
+            askpass: Mutex::new(AskpassPolicy::Answer { password: TEST_PASSWORD.into(), save: false }),
+            events: Mutex::new(vec![]),
+        })
+    }
 }
 
 impl EventSink for TestSink {
@@ -38,7 +58,11 @@ impl EventSink for TestSink {
                 b.answer(&p.request_id, Answer::HostKey(matches!(self.policy, HostKeyPolicy::Trust)));
             }
             (AppEvent::AskpassPrompt(p), Some(b)) => {
-                b.answer(&p.request_id, Answer::Secret(Some(TEST_PASSWORD.into())));
+                let answer = match self.askpass.lock().unwrap().clone() {
+                    AskpassPolicy::Answer { password, save } => Answer::Secret { secret: Some(password), save },
+                    AskpassPolicy::Cancel => Answer::Secret { secret: None, save: false },
+                };
+                b.answer(&p.request_id, answer);
             }
             _ => {}
         }
@@ -51,44 +75,51 @@ struct Harness {
     broker: Arc<Broker>,
     sessions: SessionManager,
     store: Arc<HostKeyStore>,
+    secrets: Arc<MemoryStore>,
+    history: Arc<HistoryStore>,
     db: Arc<Db>,
     store_path: PathBuf,
 }
 
 impl Harness {
     fn new(store_path: PathBuf, policy: HostKeyPolicy) -> Self {
-        let sink = Arc::new(TestSink { broker: OnceLock::new(), policy, events: Mutex::new(vec![]) });
         let db = Db::open(&store_path).unwrap();
         let store = Arc::new(HostKeyStore::new(db.clone()));
-        let broker = Broker::start(sink.clone(), store.clone()).unwrap();
+        Self::build(policy, db, store, Arc::new(MemoryStore::default()), store_path)
+    }
+
+    fn build(
+        policy: HostKeyPolicy,
+        db: Arc<Db>,
+        store: Arc<HostKeyStore>,
+        secrets: Arc<MemoryStore>,
+        store_path: PathBuf,
+    ) -> Self {
+        let sink = TestSink::new(policy);
+        let broker = Broker::start(sink.clone(), store.clone(), secrets.clone()).unwrap();
         sink.broker.set(Arc::downgrade(&broker)).unwrap();
-        let sessions = SessionManager::new(sink.clone(), env!("CARGO_BIN_EXE_dhost").to_string());
-        Self { sink, broker, sessions, store, db, store_path }
+        let history = Arc::new(HistoryStore::new(db.clone()));
+        let sessions =
+            SessionManager::new(sink.clone(), env!("CARGO_BIN_EXE_dhost").to_string(), Some(history.clone()));
+        Self { sink, broker, sessions, store, secrets, history, db, store_path }
     }
 
     /// 같은 저장소를 쓰는 새 브로커 (앱 재실행 흉내)
     fn new_shared(other: &Harness, policy: HostKeyPolicy) -> Self {
-        let sink = Arc::new(TestSink { broker: OnceLock::new(), policy, events: Mutex::new(vec![]) });
-        let broker = Broker::start(sink.clone(), other.store.clone()).unwrap();
-        sink.broker.set(Arc::downgrade(&broker)).unwrap();
-        let sessions = SessionManager::new(sink.clone(), env!("CARGO_BIN_EXE_dhost").to_string());
-        Self {
-            sink,
-            broker,
-            sessions,
-            store: other.store.clone(),
-            db: other.db.clone(),
-            store_path: other.store_path.clone(),
-        }
+        Self::build(policy, other.db.clone(), other.store.clone(), other.secrets.clone(), other.store_path.clone())
     }
 
     /// 접속 후 셸이 뜨면 명령을 보내고, 종료될 때까지 출력과 종료 코드를 모은다.
     fn run(&self, req: ConnectRequest, command: Option<&str>) -> (String, Option<u32>) {
+        self.run_as(req, SessionLabel { title: "test".into(), ..Default::default() }, command)
+    }
+
+    fn run_as(&self, req: ConnectRequest, label: SessionLabel, command: Option<&str>) -> (String, Option<u32>) {
         let out = Arc::new(Mutex::new(Vec::<u8>::new()));
         let o = out.clone();
         let id = self
             .sessions
-            .open(&OpenSshEngine::new(), self.broker.clone(), req, (120, 40), Box::new(move |b| {
+            .open(&OpenSshEngine::new(), self.broker.clone(), req, label, (120, 40), Box::new(move |b| {
                 o.lock().unwrap().extend_from_slice(b);
                 true
             }))
@@ -177,6 +208,8 @@ fn direct_first_connect_then_reconnect_then_key_change() {
     let saved = h.store.list().unwrap();
     assert_eq!(saved.len(), 1);
     assert_eq!(saved[0].host, "[127.0.0.1]:2222");
+    // 우리가 계산한 지문이 ssh가 넘겨준 지문(%f)과 같아야 known_hosts 가져오기 지문을 믿을 수 있다
+    assert_eq!(dhost_lib::sshfiles::fingerprint(&saved[0].key).as_deref(), Some(saved[0].fingerprint.as_str()));
 
     // 2) 재접속: 저장된 키라서 승인 창 없이 비밀번호만
     h.clear();
@@ -200,6 +233,7 @@ fn direct_first_connect_then_reconnect_then_key_change() {
     assert_eq!(h2.count(is_changed), 1);
     assert_eq!(h2.count(is_hostkey_prompt), 0);
     assert_eq!(h2.count(is_askpass), 0);
+    assert_eq!(last_result(&h2), "hostkey_changed");
 }
 
 #[test]
@@ -212,6 +246,7 @@ fn rejected_host_key_never_authenticates() {
     assert_eq!(h.count(is_hostkey_prompt), 1);
     assert_eq!(h.count(is_askpass), 0);
     assert!(h.store.list().unwrap().is_empty(), "거절한 키는 저장하지 않는다");
+    assert_eq!(last_result(&h), "hostkey_rejected");
 }
 
 #[test]
@@ -241,7 +276,8 @@ fn close_kills_ssh_process() {
     let o = out.clone();
     let id = h
         .sessions
-        .open(&OpenSshEngine::new(), h.broker.clone(), ConnectRequest { target: bastion(), jump: None }, (80, 24),
+        .open(&OpenSshEngine::new(), h.broker.clone(), ConnectRequest { target: bastion(), jump: None },
+            SessionLabel::default(), (80, 24),
             Box::new(move |b| { o.lock().unwrap().extend_from_slice(b); true }))
         .unwrap();
     let start = Instant::now();
@@ -267,4 +303,85 @@ fn multibyte_and_ansi_pass_through() {
     );
     assert_eq!(code, Some(0));
     assert!(out.contains("\u{1b}[31m한글출력\u{1b}[0m"), "출력: {out:?}");
+}
+
+fn profile_label() -> SessionLabel {
+    SessionLabel { title: "bastion".into(), target_server_id: Some("srv-bastion".into()), ..Default::default() }
+}
+
+fn last_result(h: &Harness) -> String {
+    h.history.list(1).unwrap()[0].result.clone()
+}
+
+fn askpass_prompts(h: &Harness) -> Vec<dhost_lib::events::AskpassPrompt> {
+    h.sink.events.lock().unwrap().iter().filter_map(|e| match e {
+        AppEvent::AskpassPrompt(p) => Some(p.clone()),
+        _ => None,
+    }).collect()
+}
+
+#[test]
+#[ignore]
+fn cancel_password_stops_without_reprompt() {
+    let h = Harness::new(temp_store("cancel"), HostKeyPolicy::Trust);
+    *h.sink.askpass.lock().unwrap() = AskpassPolicy::Cancel;
+    let (_, code) = h.run(ConnectRequest { target: bastion(), jump: None }, None);
+    assert_eq!(code, Some(255));
+    // 취소 한 번이면 다시 묻지 않는다 (예전에는 3번까지 다시 물었음)
+    assert_eq!(h.count(is_askpass), 1);
+    assert_eq!(last_result(&h), "cancelled");
+}
+
+#[test]
+#[ignore]
+fn save_then_autofill_password() {
+    let h = Harness::new(temp_store("save"), HostKeyPolicy::Trust);
+    *h.sink.askpass.lock().unwrap() = AskpassPolicy::Answer { password: TEST_PASSWORD.into(), save: true };
+    let req = || ConnectRequest { target: bastion(), jump: None };
+
+    // 1) 저장 체크하고 접속 -> 키체인(테스트에서는 메모리)에 저장
+    let (_, code) = h.run_as(req(), profile_label(), Some("exit"));
+    assert_eq!(code, Some(0));
+    assert!(askpass_prompts(&h)[0].can_save);
+    assert_eq!(h.secrets.get("srv-bastion").as_deref(), Some(TEST_PASSWORD));
+    assert_eq!(last_result(&h), "closed");
+
+    // 2) 다음 접속은 묻지 않고 자동 입력
+    h.clear();
+    let (_, code) = h.run_as(req(), profile_label(), Some("exit"));
+    assert_eq!(code, Some(0));
+    assert_eq!(h.count(is_askpass), 0);
+
+    // 3) 빠른 접속(프로필 없음)은 저장 대상이 아니다
+    h.clear();
+    let (_, code) = h.run(req(), Some("exit"));
+    assert_eq!(code, Some(0));
+    assert!(!askpass_prompts(&h)[0].can_save);
+}
+
+#[test]
+#[ignore]
+fn wrong_saved_password_is_removed_and_reprompted() {
+    let h = Harness::new(temp_store("wrongsaved"), HostKeyPolicy::Trust);
+    h.secrets.set("srv-bastion", "wrong-password").unwrap();
+    let (_, code) = h.run_as(ConnectRequest { target: bastion(), jump: None }, profile_label(), Some("exit"));
+    assert_eq!(code, Some(0));
+    let prompts = askpass_prompts(&h);
+    // 자동 입력이 틀려서 한 번 물었고, 그때 "저장된 비밀번호가 틀렸다"고 알린다
+    assert_eq!(prompts.len(), 1);
+    assert!(prompts[0].retry && prompts[0].saved_was_wrong);
+    assert!(h.secrets.get("srv-bastion").is_none(), "틀린 비밀번호는 지운다");
+}
+
+#[test]
+#[ignore]
+fn wrong_password_saved_is_not_kept() {
+    let h = Harness::new(temp_store("wrongnew"), HostKeyPolicy::Trust);
+    *h.sink.askpass.lock().unwrap() = AskpassPolicy::Answer { password: "nope".into(), save: true };
+    let (_, code) = h.run_as(ConnectRequest { target: bastion(), jump: None }, profile_label(), None);
+    assert_eq!(code, Some(255));
+    // 틀린 비밀번호를 확인하면 다시 묻는다 (3번)
+    assert_eq!(h.count(is_askpass), 3);
+    assert!(h.secrets.get("srv-bastion").is_none());
+    assert_eq!(last_result(&h), "auth_failed");
 }
