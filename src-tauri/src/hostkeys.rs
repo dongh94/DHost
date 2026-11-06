@@ -1,21 +1,23 @@
-//! DHost가 신뢰한 호스트 키 저장소.
-//! 사용자가 승인한 키만 저장한다. 파일 위치: 앱 데이터 폴더/known_hosts.json
+//! DHost가 신뢰한 호스트 키 저장소. 사용자가 승인한 키만 저장한다.
 
-use std::path::PathBuf;
-use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::Arc;
 
+use rusqlite::params;
 use serde::{Deserialize, Serialize};
+
+use crate::db::{now, Db};
+use crate::error::AppResult;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct HostKey {
+    pub id: i64,
     /// ssh가 known_hosts에서 찾는 이름 (예: "[192.0.2.10]:2222", "target")
     pub host: String,
     pub key_type: String,
     pub key: String,
     pub fingerprint: String,
-    pub added_at: u64,
+    pub added_at: i64,
 }
 
 impl HostKey {
@@ -25,37 +27,76 @@ impl HostKey {
 }
 
 pub struct HostKeyStore {
-    path: PathBuf,
-    keys: Mutex<Vec<HostKey>>,
+    db: Arc<Db>,
+}
+
+const COLUMNS: &str = "id, host, key_type, key, fingerprint, added_at";
+
+fn row(r: &rusqlite::Row) -> rusqlite::Result<HostKey> {
+    Ok(HostKey {
+        id: r.get(0)?,
+        host: r.get(1)?,
+        key_type: r.get(2)?,
+        key: r.get(3)?,
+        fingerprint: r.get(4)?,
+        added_at: r.get(5)?,
+    })
 }
 
 impl HostKeyStore {
-    pub fn load(path: PathBuf) -> Self {
-        let keys = std::fs::read(&path)
-            .ok()
-            .and_then(|b| serde_json::from_slice(&b).ok())
-            .unwrap_or_default();
-        Self { path, keys: Mutex::new(keys) }
+    pub fn new(db: Arc<Db>) -> Self {
+        Self { db }
     }
 
-    pub fn find(&self, host: &str) -> Vec<HostKey> {
-        self.keys.lock().unwrap().iter().filter(|k| k.host == host).cloned().collect()
+    pub fn find(&self, host: &str) -> AppResult<Vec<HostKey>> {
+        self.db.with(|c| {
+            let mut st = c.prepare(&format!("SELECT {COLUMNS} FROM host_keys WHERE host = ?1"))?;
+            st.query_map([host], row)?.collect()
+        })
     }
 
-    pub fn add(&self, host: &str, key_type: &str, key: &str, fingerprint: &str) -> std::io::Result<HostKey> {
-        let entry = HostKey {
-            host: host.into(),
-            key_type: key_type.into(),
-            key: key.into(),
-            fingerprint: fingerprint.into(),
-            added_at: SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0),
-        };
-        let mut keys = self.keys.lock().unwrap();
-        keys.push(entry.clone());
-        if let Some(dir) = self.path.parent() {
-            std::fs::create_dir_all(dir)?;
+    pub fn list(&self) -> AppResult<Vec<HostKey>> {
+        self.db.with(|c| {
+            let mut st = c.prepare(&format!("SELECT {COLUMNS} FROM host_keys ORDER BY host"))?;
+            st.query_map([], row)?.collect()
+        })
+    }
+
+    pub fn add(&self, host: &str, key_type: &str, key: &str, fingerprint: &str) -> AppResult<HostKey> {
+        self.db.with(|c| {
+            c.execute(
+                "INSERT OR IGNORE INTO host_keys (host, key_type, key, fingerprint, added_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![host, key_type, key, fingerprint, now()],
+            )?;
+            c.query_row(
+                &format!("SELECT {COLUMNS} FROM host_keys WHERE host = ?1 AND key_type = ?2 AND key = ?3"),
+                params![host, key_type, key],
+                row,
+            )
+        })
+    }
+
+    /// 키가 바뀐 서버를 관리자와 확인한 뒤, 사용자가 직접 기존 키를 지울 때 쓴다.
+    pub fn remove(&self, id: i64) -> AppResult<()> {
+        self.db.with(|c| c.execute("DELETE FROM host_keys WHERE id = ?1", [id]).map(|_| ()))
+    }
+
+    /// 스파이크 때 쓰던 known_hosts.json이 있으면 한 번 가져오고 지운다.
+    pub fn import_legacy_json(&self, path: &std::path::Path) {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Legacy {
+            host: String,
+            key_type: String,
+            key: String,
+            fingerprint: String,
         }
-        std::fs::write(&self.path, serde_json::to_vec_pretty(&*keys)?)?;
-        Ok(entry)
+        let Ok(bytes) = std::fs::read(path) else { return };
+        if let Ok(items) = serde_json::from_slice::<Vec<Legacy>>(&bytes) {
+            for k in items {
+                let _ = self.add(&k.host, &k.key_type, &k.key, &k.fingerprint);
+            }
+            let _ = std::fs::remove_file(path);
+        }
     }
 }

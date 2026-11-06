@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
+use dhost_lib::db::Db;
 use dhost_lib::events::{AppEvent, EventSink};
 use dhost_lib::hostkeys::HostKeyStore;
 use dhost_lib::ipc::{Answer, Broker};
@@ -49,16 +50,36 @@ struct Harness {
     sink: Arc<TestSink>,
     broker: Arc<Broker>,
     sessions: SessionManager,
+    store: Arc<HostKeyStore>,
+    db: Arc<Db>,
     store_path: PathBuf,
 }
 
 impl Harness {
     fn new(store_path: PathBuf, policy: HostKeyPolicy) -> Self {
         let sink = Arc::new(TestSink { broker: OnceLock::new(), policy, events: Mutex::new(vec![]) });
-        let broker = Broker::start(sink.clone(), HostKeyStore::load(store_path.clone())).unwrap();
+        let db = Db::open(&store_path).unwrap();
+        let store = Arc::new(HostKeyStore::new(db.clone()));
+        let broker = Broker::start(sink.clone(), store.clone()).unwrap();
         sink.broker.set(Arc::downgrade(&broker)).unwrap();
         let sessions = SessionManager::new(sink.clone(), env!("CARGO_BIN_EXE_dhost").to_string());
-        Self { sink, broker, sessions, store_path }
+        Self { sink, broker, sessions, store, db, store_path }
+    }
+
+    /// 같은 저장소를 쓰는 새 브로커 (앱 재실행 흉내)
+    fn new_shared(other: &Harness, policy: HostKeyPolicy) -> Self {
+        let sink = Arc::new(TestSink { broker: OnceLock::new(), policy, events: Mutex::new(vec![]) });
+        let broker = Broker::start(sink.clone(), other.store.clone()).unwrap();
+        sink.broker.set(Arc::downgrade(&broker)).unwrap();
+        let sessions = SessionManager::new(sink.clone(), env!("CARGO_BIN_EXE_dhost").to_string());
+        Self {
+            sink,
+            broker,
+            sessions,
+            store: other.store.clone(),
+            db: other.db.clone(),
+            store_path: other.store_path.clone(),
+        }
     }
 
     /// 접속 후 셸이 뜨면 명령을 보내고, 종료될 때까지 출력과 종료 코드를 모은다.
@@ -123,7 +144,7 @@ impl Drop for Harness {
 fn temp_store(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("dhost-e2e-{}-{name}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
-    dir.join("known_hosts.json")
+    dir.join("dhost.db")
 }
 
 fn bastion() -> Endpoint {
@@ -153,8 +174,9 @@ fn direct_first_connect_then_reconnect_then_key_change() {
     assert_eq!(code, Some(0));
     assert_eq!(h.count(is_hostkey_prompt), 1);
     assert_eq!(h.count(is_askpass), 1);
-    let saved = std::fs::read_to_string(&h.store_path).unwrap();
-    assert!(saved.contains("[127.0.0.1]:2222"));
+    let saved = h.store.list().unwrap();
+    assert_eq!(saved.len(), 1);
+    assert_eq!(saved[0].host, "[127.0.0.1]:2222");
 
     // 2) 재접속: 저장된 키라서 승인 창 없이 비밀번호만
     h.clear();
@@ -164,12 +186,14 @@ fn direct_first_connect_then_reconnect_then_key_change() {
     assert_eq!(h.count(is_askpass), 1);
 
     // 3) 키 변경: 저장된 키를 다른 키로 바꾸면 차단, 비밀번호도 묻지 않는다
-    let tampered = saved.replace(
-        &saved.split("\"key\": \"").nth(1).unwrap().split('"').next().unwrap().to_string(),
-        "AAAAC3NzaC1lZDI1NTE5AAAAIAXI1qT+YeFMxiSH8lNimKhEhupnrWMYnHea6ZXemlk/",
-    );
-    std::fs::write(&h.store_path, tampered).unwrap();
-    let h2 = Harness::new(h.store_path.clone(), HostKeyPolicy::Trust);
+    h.db.with(|c| {
+        c.execute(
+            "UPDATE host_keys SET key = 'AAAAC3NzaC1lZDI1NTE5AAAAIAXI1qT+YeFMxiSH8lNimKhEhupnrWMYnHea6ZXemlk/'",
+            [],
+        )
+    })
+    .unwrap();
+    let h2 = Harness::new_shared(&h, HostKeyPolicy::Trust);
     let (out, code) = h2.run(req(), None);
     assert_eq!(code, Some(255), "출력: {out}");
     assert!(out.contains("REMOTE HOST IDENTIFICATION HAS CHANGED"), "출력: {out}");
@@ -187,7 +211,7 @@ fn rejected_host_key_never_authenticates() {
     assert!(out.contains("Host key verification failed"), "출력: {out}");
     assert_eq!(h.count(is_hostkey_prompt), 1);
     assert_eq!(h.count(is_askpass), 0);
-    assert!(!h.store_path.exists(), "거절한 키는 저장하지 않는다");
+    assert!(h.store.list().unwrap().is_empty(), "거절한 키는 저장하지 않는다");
 }
 
 #[test]
@@ -204,9 +228,9 @@ fn jump_host_verifies_both_hops() {
     // 경유 서버와 대상 서버 각각 승인 + 비밀번호
     assert_eq!(h.count(is_hostkey_prompt), 2);
     assert_eq!(h.count(is_askpass), 2);
-    let saved = std::fs::read_to_string(&h.store_path).unwrap();
-    assert!(saved.contains("\"host\": \"target\""));
-    assert!(saved.contains("[127.0.0.1]:2222"));
+    let hosts: Vec<String> = h.store.list().unwrap().into_iter().map(|k| k.host).collect();
+    assert!(hosts.contains(&"target".to_string()));
+    assert!(hosts.contains(&"[127.0.0.1]:2222".to_string()));
 }
 
 #[test]

@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { getTerminal } from "../lib/terminals";
 
-/** 보관 중인 xterm 인스턴스를 화면에 붙인다. 언마운트해도 터미널은 유지된다. */
+/** 보관 중인 xterm 인스턴스를 화면에 붙인다. 페이지를 옮겨도 터미널과 세션은 유지된다. */
 export function TerminalView({ termKey, active }: { termKey: string; active: boolean }) {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -25,9 +25,11 @@ export function TerminalView({ termKey, active }: { termKey: string; active: boo
     if (!active) return;
     const entry = getTerminal(termKey);
     if (!entry) return;
-    entry.fit.fit();
-    entry.term.focus();
+    requestAnimationFrame(() => {
+      entry.fit.fit();
+      entry.term.focus();
+    });
   }, [active, termKey]);
 
-  return <div ref={containerRef} className={`h-full w-full p-2 ${active ? "" : "hidden"}`} />;
+  return <div ref={containerRef} className={`h-full w-full bg-surface p-2 ${active ? "" : "hidden"}`} />;
 }

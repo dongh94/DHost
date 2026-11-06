@@ -1,37 +1,40 @@
 import { useEffect } from "react";
+import { Header } from "./components/Header";
+import { NavRail } from "./components/NavRail";
 import { PromptDialog } from "./components/PromptDialog";
-import { Sidebar } from "./components/Sidebar";
 import { StatusBar } from "./components/StatusBar";
-import { TabBar } from "./components/TabBar";
-import { TerminalView } from "./components/TerminalView";
 import { setAllThemes } from "./lib/terminals";
 import { useApplyTheme } from "./lib/useApplyTheme";
 import { useBackendEvents } from "./lib/useBackendEvents";
-import { useSessions } from "./stores/sessions";
+import { HostKeysPage } from "./pages/HostKeysPage";
+import { ServersPage } from "./pages/ServersPage";
+import { SessionsPage } from "./pages/SessionsPage";
+import { SettingsPage } from "./pages/SettingsPage";
+import { useCatalog } from "./stores/catalog";
+import { useUi } from "./stores/ui";
 
 export default function App() {
   const theme = useApplyTheme();
   useBackendEvents();
-  const { tabs, activeKey } = useSessions();
+  const page = useUi((s) => s.page);
 
   // 테마를 바꿔도 터미널을 다시 만들지 않는다 (세션 유지)
   useEffect(() => setAllThemes(theme), [theme]);
+  useEffect(() => {
+    void useCatalog.getState().reload();
+  }, []);
 
   return (
-    <div className="flex h-full flex-col bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
+    <div className="flex h-full flex-col bg-canvas text-fg">
+      <Header />
       <div className="flex min-h-0 flex-1">
-        <Sidebar />
-        <main className="flex min-w-0 flex-1 flex-col">
-          <TabBar />
-          <div className="min-h-0 flex-1">
-            {tabs.length === 0 ? (
-              <div className="flex h-full items-center justify-center text-sm text-zinc-500">
-                왼쪽에서 서버 정보를 입력하고 연결을 누르세요.
-              </div>
-            ) : (
-              tabs.map((t) => <TerminalView key={t.key} termKey={t.key} active={t.key === activeKey} />)
-            )}
-          </div>
+        <NavRail />
+        <main className="min-w-0 flex-1">
+          {page === "servers" && <ServersPage />}
+          {page === "hostkeys" && <HostKeysPage />}
+          {page === "settings" && <SettingsPage />}
+          {/* 세션 화면은 항상 마운트해서 다른 화면에 가도 터미널이 유지되게 한다 */}
+          <SessionsPage visible={page === "sessions"} />
         </main>
       </div>
       <StatusBar />

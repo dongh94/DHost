@@ -22,6 +22,14 @@ pnpm install
 pnpm tauri dev
 ```
 
+### 브라우저에서 화면만 확인
+
+```bash
+pnpm dev
+```
+
+`http://localhost:1420/?mock`을 열면 가상 데이터로 화면을 볼 수 있다. 실제 접속은 `pnpm tauri dev`로 띄운 앱에서만 된다.
+
 ### 테스트
 
 ```bash
@@ -36,14 +44,17 @@ cd src-tauri && cargo test --test e2e_docker -- --ignored --test-threads=1
 ## 구조
 
 ```
-src/                  React 프런트엔드
-  components/         Sidebar, TerminalView, StatusBar
-  stores/             Zustand 상태
-  lib/                Tauri 호출(api.ts), 테마 훅
+src/                  React 프런트엔드 (Docker Desktop형 레이아웃: 상단 검색, 왼쪽 내비, 하단 상태바)
+  pages/              서버 목록, 세션, 호스트 키, 설정
+  components/         헤더·내비·상태바, 대화상자, 공통 UI(ui/)
+  stores/             Zustand 상태 (catalog, sessions, ui, settings)
+  lib/                Tauri 호출(api.ts), 세션 연결, 터미널 보관, 개발용 가짜 백엔드(devMock.ts)
 src-tauri/src/
   lib.rs              앱 진입점, 상태 등록
   commands.rs         프런트엔드에 노출하는 Tauri 명령
   error.rs            오류 타입
+  db.rs               SQLite 저장소와 마이그레이션 (앱 데이터 폴더/dhost.db, 권한 0600)
+  profiles.rs         고객사 > 폴더 > 서버 프로필, 단일 Jump Host 규칙
   ssh/                SSH 엔진 trait + OpenSSH 구현 (인자 구성, 입력값 검증)
   session.rs          PTY 세션 관리
   ipc.rs              helper ↔ 앱 Unix 소켓 통신, 호스트 키 판단

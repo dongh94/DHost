@@ -1,45 +1,35 @@
 import { useEffect, useState } from "react";
+import { isTauri } from "@tauri-apps/api/core";
 import { api, type EngineInfo } from "../lib/api";
-import { useSettings, type ThemeMode } from "../stores/settings";
+import { useSessions } from "../stores/sessions";
 
-const themeLabels: Record<ThemeMode, string> = {
-  system: "시스템",
-  light: "라이트",
-  dark: "다크",
-};
-
+/** 하단 상태바: SSH 엔진 상태와 세션 수 */
 export function StatusBar() {
-  const { theme, setTheme } = useSettings();
   const [engine, setEngine] = useState<EngineInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const tabs = useSessions((s) => s.tabs);
+  const connected = tabs.filter((t) => t.status === "connected").length;
 
   useEffect(() => {
+    if (!isTauri()) {
+      setError("브라우저 미리보기: 백엔드 없음 (pnpm tauri dev로 실행)");
+      return;
+    }
     api.sshEngineInfo().then(setEngine).catch((e) => setError(String(e)));
   }, []);
 
+  const ok = engine?.supported && !error;
+  const label = error ?? (engine ? `OpenSSH 사용 가능 · ${engine.version.split(",")[0]}` : "SSH 엔진 확인 중…");
+
   return (
-    <footer className="flex h-7 shrink-0 items-center justify-between border-t border-zinc-200 bg-zinc-50 px-3 text-xs text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
-      <span>
-        {error
-          ? `SSH 엔진 오류: ${error}`
-          : engine
-            ? `${engine.version}${engine.supported ? "" : " (지원하지 않는 버전)"}`
-            : "SSH 엔진 확인 중…"}
+    <footer className="flex h-7 shrink-0 items-center gap-4 border-t border-line bg-chrome px-3 text-xs text-fg-muted">
+      <span className="flex items-center gap-1.5">
+        <span className={`h-2 w-2 rounded-full ${ok ? "bg-emerald-500" : error ? "bg-red-500" : "bg-amber-400"}`} />
+        {engine && !engine.supported ? `${label} (지원하지 않는 버전, 8.5 이상 필요)` : label}
       </span>
-      <label className="flex items-center gap-1">
-        테마
-        <select
-          value={theme}
-          onChange={(e) => setTheme(e.target.value as ThemeMode)}
-          className="rounded border border-zinc-300 bg-white px-1 dark:border-zinc-700 dark:bg-zinc-950"
-        >
-          {(Object.keys(themeLabels) as ThemeMode[]).map((m) => (
-            <option key={m} value={m}>
-              {themeLabels[m]}
-            </option>
-          ))}
-        </select>
-      </label>
+      <span className="ml-auto">
+        세션 {connected}개 연결됨{tabs.length > connected ? ` · 끊김 ${tabs.length - connected}개` : ""}
+      </span>
     </footer>
   );
 }

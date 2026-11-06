@@ -4,6 +4,7 @@
 
 use std::sync::{Arc, OnceLock, Weak};
 
+use dhost_lib::db::Db;
 use dhost_lib::events::{AppEvent, EventSink};
 use dhost_lib::hostkeys::HostKeyStore;
 use dhost_lib::ipc::{Answer, Broker};
@@ -28,9 +29,9 @@ impl EventSink for AutoSink {
 
 fn main() {
     let helper = std::env::args().nth(1).expect("usage: hold_session <path to target/debug/dhost>");
-    let store = std::env::temp_dir().join(format!("dhost-hold-{}.json", std::process::id()));
+    let store = std::env::temp_dir().join(format!("dhost-hold-{}.db", std::process::id()));
     let sink = Arc::new(AutoSink(OnceLock::new()));
-    let broker = Broker::start(sink.clone(), HostKeyStore::load(store)).unwrap();
+    let broker = Broker::start(sink.clone(), Arc::new(HostKeyStore::new(Db::open(&store).unwrap()))).unwrap();
     sink.0.set(Arc::downgrade(&broker)).unwrap();
     let sessions = SessionManager::new(sink, helper);
     let req = ConnectRequest { target: Endpoint { host: "127.0.0.1".into(), port: 2222, user: "dhost".into() }, jump: None };

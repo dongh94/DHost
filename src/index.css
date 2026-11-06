@@ -4,6 +4,48 @@
 /* 다크 모드는 <html class="dark">로 제어한다 (시스템 연동 + 수동 변경, PRD POL-03) */
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* 디자인 토큰: Docker Desktop처럼 차분한 회색 바탕 + 파란 강조색 */
+@theme {
+  --color-brand-50: #eef4ff;
+  --color-brand-100: #dbe7fe;
+  --color-brand-300: #93b4fb;
+  --color-brand-500: #3b74f2;
+  --color-brand-600: #1d5ce8;
+  --color-brand-700: #1748c4;
+  --color-brand-950: #0f1d40;
+
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-subtle: var(--fg-subtle);
+  --color-chrome: var(--chrome);
+}
+
+:root {
+  --canvas: #f4f5f7;
+  --surface: #ffffff;
+  --muted: #eceef2;
+  --line: #dfe2e8;
+  --fg: #1b1f27;
+  --fg-muted: #5b6372;
+  --fg-subtle: #8b93a1;
+  --chrome: #ffffff;
+}
+
+.dark {
+  --canvas: #15181e;
+  --surface: #1d2128;
+  --muted: #272c35;
+  --line: #2f3540;
+  --fg: #e7e9ee;
+  --fg-muted: #a3aab7;
+  --fg-subtle: #6f7785;
+  --chrome: #111419;
+}
+
 html,
 body,
 #root {
@@ -13,4 +55,14 @@ body,
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Pretendard", sans-serif;
+  background: var(--canvas);
+  color: var(--fg);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+input,
+textarea,
+.xterm {
+  user-select: text;
 }

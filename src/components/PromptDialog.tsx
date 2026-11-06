@@ -3,8 +3,8 @@ import { api } from "../lib/api";
 import { useSessions } from "../stores/sessions";
 
 const btn = "rounded-md px-3 py-1.5 text-sm font-medium";
-const btnGhost = `${btn} border border-zinc-300 hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800`;
-const btnPrimary = `${btn} bg-zinc-900 text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300`;
+const btnGhost = `${btn} border border-line bg-surface text-fg hover:bg-muted`;
+const btnPrimary = `${btn} bg-brand-600 text-white hover:bg-brand-700`;
 const btnDanger = `${btn} bg-red-600 text-white hover:bg-red-500`;
 
 function Shell({ title, tone, children }: { title: string; tone?: "danger"; children: React.ReactNode }) {
@@ -13,11 +13,11 @@ function Shell({ title, tone, children }: { title: string; tone?: "danger"; chil
       <div
         role="dialog"
         aria-modal="true"
-        className={`w-full max-w-md rounded-lg border bg-white p-5 shadow-xl dark:bg-zinc-900 ${
-          tone === "danger" ? "border-red-500" : "border-zinc-200 dark:border-zinc-700"
+        className={`w-full max-w-md rounded-lg border bg-surface p-5 shadow-2xl ${
+          tone === "danger" ? "border-red-500" : "border-line"
         }`}
       >
-        <h2 className={`mb-3 text-base font-semibold ${tone === "danger" ? "text-red-600" : ""}`}>{title}</h2>
+        <h2 className={`mb-3 text-base font-semibold ${tone === "danger" ? "text-red-600" : "text-fg"}`}>{title}</h2>
         {children}
       </div>
     </div>
@@ -26,7 +26,7 @@ function Shell({ title, tone, children }: { title: string; tone?: "danger"; chil
 
 function Fingerprint({ value }: { value: string }) {
   return (
-    <code className="block break-all rounded bg-zinc-100 px-2 py-1.5 font-mono text-xs dark:bg-zinc-800">
+    <code className="block break-all rounded bg-muted px-2 py-1.5 font-mono text-xs text-fg">
       {value}
     </code>
   );
@@ -60,7 +60,7 @@ export function PromptDialog() {
             확인한 뒤에 승인하세요.
           </p>
           <div>
-            <div className="mb-1 text-xs text-zinc-500">{p.keyType}</div>
+            <div className="mb-1 text-xs text-fg-subtle">{p.keyType}</div>
             <Fingerprint value={p.fingerprint} />
           </div>
           <div className="flex justify-end gap-2 pt-1">
@@ -86,11 +86,11 @@ export function PromptDialog() {
             누군가 통신을 가로채고 있을 수도 있습니다. 관리자에게 확인하기 전에는 접속하지 마세요.
           </p>
           <div>
-            <div className="mb-1 text-xs text-zinc-500">서버가 보낸 키 ({p.keyType})</div>
+            <div className="mb-1 text-xs text-fg-subtle">서버가 보낸 키 ({p.keyType})</div>
             <Fingerprint value={p.fingerprint} />
           </div>
           <div>
-            <div className="mb-1 text-xs text-zinc-500">저장된 키</div>
+            <div className="mb-1 text-xs text-fg-subtle">저장된 키</div>
             {p.knownFingerprints.map((f) => (
               <Fingerprint key={f} value={f} />
             ))}
@@ -142,7 +142,7 @@ export function PromptDialog() {
           autoComplete="off"
           value={secret}
           onChange={(e) => setSecret(e.target.value)}
-          className="w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 dark:border-zinc-700 dark:bg-zinc-950"
+          className="w-full rounded-md border border-line bg-surface px-2 py-1.5 text-fg focus:border-brand-500 focus:outline-none"
         />
         <div className="flex justify-end gap-2">
           <button type="button" className={btnGhost} onClick={() => reply(null)}>

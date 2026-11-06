@@ -52,7 +52,7 @@ pub enum Answer {
 pub struct Broker {
     pub socket_path: PathBuf,
     sink: Arc<dyn EventSink>,
-    hostkeys: HostKeyStore,
+    hostkeys: Arc<HostKeyStore>,
     /// 세션 토큰 -> 세션 ID
     tokens: Mutex<HashMap<String, String>>,
     /// 화면 응답을 기다리는 요청 ID -> 응답 채널
@@ -60,7 +60,7 @@ pub struct Broker {
 }
 
 impl Broker {
-    pub fn start(sink: Arc<dyn EventSink>, hostkeys: HostKeyStore) -> std::io::Result<Arc<Self>> {
+    pub fn start(sink: Arc<dyn EventSink>, hostkeys: Arc<HostKeyStore>) -> std::io::Result<Arc<Self>> {
         sweep_stale_dirs();
         // 다른 사용자가 접근할 수 없는 폴더에 소켓을 만든다.
         let nonce = uuid::Uuid::new_v4().simple().to_string();
@@ -164,7 +164,14 @@ impl Broker {
         key: &str,
         fingerprint: &str,
     ) -> Vec<String> {
-        let known = self.hostkeys.find(host);
+        let known = match self.hostkeys.find(host) {
+            Ok(k) => k,
+            Err(e) => {
+                // 저장소를 읽을 수 없으면 아무 키도 신뢰하지 않는다 (ssh가 연결을 중단한다).
+                eprintln!("[dhost ipc] 호스트 키 조회 실패: {e}");
+                return vec![];
+            }
+        };
         let lines = || known.iter().map(|k| k.known_hosts_line()).collect::<Vec<_>>();
 
         // ORDER: 알고리즘 우선순위를 정하는 호출. 제시된 키가 없으므로 묻지 않는다.

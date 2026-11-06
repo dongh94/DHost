@@ -3,11 +3,16 @@ import type { AskpassPrompt, ConnectRequest, HostKeyChanged, HostKeyPrompt } fro
 
 export type SessionStatus = "connecting" | "connected" | "closed";
 
+/** 접속 방법: 저장된 서버 프로필 또는 빠른 접속 */
+export type SessionSource = { type: "server"; serverId: string } | { type: "quick"; request: ConnectRequest };
+
 export interface SessionTab {
   /** 화면 탭 키. 재접속해도 유지된다. */
   key: string;
   title: string;
-  request: ConnectRequest;
+  subtitle: string;
+  source: SessionSource;
+  production: boolean;
   /** 백엔드 세션 ID. 재접속하면 바뀐다. */
   sessionId: string | null;
   status: SessionStatus;
