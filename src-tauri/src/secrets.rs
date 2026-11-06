@@ -50,7 +50,9 @@ impl SecretStore for KeychainStore {
         None
     }
     fn set(&self, _: &str, _: &str) -> AppResult<()> {
-        Err(AppError::Internal("이 OS에서는 아직 비밀번호 저장을 지원하지 않습니다".into()))
+        Err(AppError::Internal(
+            "이 OS에서는 아직 비밀번호 저장을 지원하지 않습니다".into(),
+        ))
     }
     fn delete(&self, _: &str) {}
 }

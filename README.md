@@ -7,6 +7,10 @@
 - SSH 엔진 스파이크 결과: [docs/spike_ssh_engine.md](docs/spike_ssh_engine.md)
 - 정책 결정 기록: [docs/decisions.md](docs/decisions.md)
 
+## 설치 (팀원)
+
+[docs/install.md](docs/install.md) — macOS 12 이상, Apple Silicon. 배포 절차는 [docs/release.md](docs/release.md).
+
 ## 단축키
 
 | 단축키 | 동작 |

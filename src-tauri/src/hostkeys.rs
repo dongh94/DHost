@@ -5,7 +5,7 @@ use std::sync::Arc;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
 
-use crate::db::{now, Db};
+use crate::db::{Db, now};
 use crate::error::AppResult;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -83,7 +83,8 @@ impl HostKeyStore {
 
     /// 키가 바뀐 서버를 관리자와 확인한 뒤, 사용자가 직접 기존 키를 지울 때 쓴다.
     pub fn remove(&self, id: i64) -> AppResult<()> {
-        self.db.with(|c| c.execute("DELETE FROM host_keys WHERE id = ?1", [id]).map(|_| ()))
+        self.db
+            .with(|c| c.execute("DELETE FROM host_keys WHERE id = ?1", [id]).map(|_| ()))
     }
 
     /// 스파이크 때 쓰던 known_hosts.json이 있으면 한 번 가져오고 지운다.

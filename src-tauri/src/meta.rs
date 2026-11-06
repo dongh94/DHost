@@ -76,8 +76,18 @@ mod tests {
             session_id: "s".into(),
             history_id: None,
             hops: vec![
-                Hop { server_id: Some("j".into()), user: "dhost".into(), host: "127.0.0.1".into(), label: "j".into() },
-                Hop { server_id: Some("t".into()), user: "dhost".into(), host: "target".into(), label: "t".into() },
+                Hop {
+                    server_id: Some("j".into()),
+                    user: "dhost".into(),
+                    host: "127.0.0.1".into(),
+                    label: "j".into(),
+                },
+                Hop {
+                    server_id: Some("t".into()),
+                    user: "dhost".into(),
+                    host: "target".into(),
+                    label: "t".into(),
+                },
             ],
             flags: Mutex::new(Flags::default()),
             tail: Mutex::new(vec![]),

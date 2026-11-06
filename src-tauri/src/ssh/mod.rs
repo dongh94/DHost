@@ -83,7 +83,10 @@ impl Endpoint {
                 .chars()
                 .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | ':' | '_'));
         if !host_ok {
-            return Err(AppError::InvalidInput(format!("호스트 이름이 올바르지 않습니다: {}", self.host)));
+            return Err(AppError::InvalidInput(format!(
+                "호스트 이름이 올바르지 않습니다: {}",
+                self.host
+            )));
         }
         let user_ok = !self.user.is_empty()
             && self.user.len() <= 64
@@ -93,7 +96,10 @@ impl Endpoint {
                 .chars()
                 .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'));
         if !user_ok {
-            return Err(AppError::InvalidInput(format!("사용자 이름이 올바르지 않습니다: {}", self.user)));
+            return Err(AppError::InvalidInput(format!(
+                "사용자 이름이 올바르지 않습니다: {}",
+                self.user
+            )));
         }
         if self.port == 0 {
             return Err(AppError::InvalidInput("포트가 올바르지 않습니다".into()));
@@ -107,7 +113,11 @@ mod tests {
     use super::*;
 
     fn ep(host: &str, user: &str) -> Endpoint {
-        Endpoint { host: host.into(), port: 22, user: user.into() }
+        Endpoint {
+            host: host.into(),
+            port: 22,
+            user: user.into(),
+        }
     }
 
     #[test]

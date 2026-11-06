@@ -1,9 +1,9 @@
 //! 고객사 > 폴더 > 서버 프로필 (FUN-01, FUN-02).
 
-use rusqlite::{params, OptionalExtension};
+use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
-use crate::db::{now, Db};
+use crate::db::{Db, now};
 use crate::error::{AppError, AppResult};
 use crate::session::SessionLabel;
 use crate::ssh::{ConnectRequest, Endpoint};
@@ -99,24 +99,44 @@ pub fn catalog(db: &Db) -> AppResult<Catalog> {
     db.with(|c| {
         let customers = c
             .prepare("SELECT id, name FROM customers ORDER BY name")?
-            .query_map([], |r| Ok(Customer { id: r.get(0)?, name: r.get(1)? }))?
+            .query_map([], |r| {
+                Ok(Customer {
+                    id: r.get(0)?,
+                    name: r.get(1)?,
+                })
+            })?
             .collect::<rusqlite::Result<_>>()?;
         let folders = c
             .prepare("SELECT id, customer_id, name FROM folders ORDER BY name")?
-            .query_map([], |r| Ok(Folder { id: r.get(0)?, customer_id: r.get(1)?, name: r.get(2)? }))?
+            .query_map([], |r| {
+                Ok(Folder {
+                    id: r.get(0)?,
+                    customer_id: r.get(1)?,
+                    name: r.get(2)?,
+                })
+            })?
             .collect::<rusqlite::Result<_>>()?;
         let servers = c
             .prepare(&format!("SELECT {SERVER_COLUMNS} FROM servers ORDER BY name"))?
             .query_map([], server_row)?
             .collect::<rusqlite::Result<_>>()?;
-        Ok(Catalog { customers, folders, servers })
+        Ok(Catalog {
+            customers,
+            folders,
+            servers,
+        })
     })
 }
 
 pub fn create_customer(db: &Db, name: &str) -> AppResult<Customer> {
     let name = clean_name(name, "고객사")?;
     let id = new_id();
-    db.with(|c| c.execute("INSERT INTO customers (id, name, created_at) VALUES (?1, ?2, ?3)", params![id, name, now()]))?;
+    db.with(|c| {
+        c.execute(
+            "INSERT INTO customers (id, name, created_at) VALUES (?1, ?2, ?3)",
+            params![id, name, now()],
+        )
+    })?;
     Ok(Customer { id, name })
 }
 
@@ -141,7 +161,11 @@ pub fn create_folder(db: &Db, customer_id: &str, name: &str) -> AppResult<Folder
             params![id, customer_id, name, now()],
         )
     })?;
-    Ok(Folder { id, customer_id: customer_id.into(), name })
+    Ok(Folder {
+        id,
+        customer_id: customer_id.into(),
+        name,
+    })
 }
 
 pub fn rename_folder(db: &Db, id: &str, name: &str) -> AppResult<()> {
@@ -156,8 +180,12 @@ pub fn delete_folder(db: &Db, id: &str) -> AppResult<()> {
 }
 
 fn get_server(c: &rusqlite::Connection, id: &str) -> rusqlite::Result<Option<Server>> {
-    c.query_row(&format!("SELECT {SERVER_COLUMNS} FROM servers WHERE id = ?1"), [id], server_row)
-        .optional()
+    c.query_row(
+        &format!("SELECT {SERVER_COLUMNS} FROM servers WHERE id = ?1"),
+        [id],
+        server_row,
+    )
+    .optional()
 }
 
 fn validate(c: &rusqlite::Connection, input: &ServerInput, self_id: Option<&str>) -> AppResult<ServerInput> {
@@ -168,12 +196,19 @@ fn validate(c: &rusqlite::Connection, input: &ServerInput, self_id: Option<&str>
     if v.note.chars().count() > 2000 {
         return Err(AppError::InvalidInput("메모는 2000자 이하여야 합니다".into()));
     }
-    Endpoint { host: v.host.clone(), port: v.port, user: v.username.clone() }.validate()?;
+    Endpoint {
+        host: v.host.clone(),
+        port: v.port,
+        user: v.username.clone(),
+    }
+    .validate()?;
 
     // 폴더는 같은 고객사 안의 폴더여야 한다.
     if let Some(folder_id) = &v.folder_id {
         let owner: Option<String> = c
-            .query_row("SELECT customer_id FROM folders WHERE id = ?1", [folder_id], |r| r.get(0))
+            .query_row("SELECT customer_id FROM folders WHERE id = ?1", [folder_id], |r| {
+                r.get(0)
+            })
             .optional()?;
         match owner {
             Some(o) if Some(&o) == v.customer_id.as_ref() => {}
@@ -184,22 +219,28 @@ fn validate(c: &rusqlite::Connection, input: &ServerInput, self_id: Option<&str>
     // 단일 Jump Host만 지원한다 (FUN-13): 경유 서버는 자기 자신이 아니고, 그 자신도 경유하지 않아야 한다.
     if let Some(jump_id) = &v.jump_server_id {
         if Some(jump_id.as_str()) == self_id {
-            return Err(AppError::InvalidInput("자기 자신을 경유 서버로 지정할 수 없습니다".into()));
+            return Err(AppError::InvalidInput(
+                "자기 자신을 경유 서버로 지정할 수 없습니다".into(),
+            ));
         }
-        let jump = get_server(c, jump_id)?
-            .ok_or_else(|| AppError::InvalidInput("경유 서버를 찾을 수 없습니다".into()))?;
+        let jump =
+            get_server(c, jump_id)?.ok_or_else(|| AppError::InvalidInput("경유 서버를 찾을 수 없습니다".into()))?;
         if jump.jump_server_id.is_some() {
-            return Err(AppError::InvalidInput("경유 서버는 다른 서버를 경유하지 않아야 합니다 (단일 Jump Host)".into()));
+            return Err(AppError::InvalidInput(
+                "경유 서버는 다른 서버를 경유하지 않아야 합니다 (단일 Jump Host)".into(),
+            ));
         }
     }
-    if let Some(id) = self_id {
-        if v.jump_server_id.is_some() {
-            let used: i64 = c.query_row("SELECT COUNT(*) FROM servers WHERE jump_server_id = ?1", [id], |r| r.get(0))?;
-            if used > 0 {
-                return Err(AppError::InvalidInput(
-                    "다른 서버의 경유 서버로 쓰이는 서버는 경유 설정을 가질 수 없습니다".into(),
-                ));
-            }
+    if let Some(id) = self_id
+        && v.jump_server_id.is_some()
+    {
+        let used: i64 = c.query_row("SELECT COUNT(*) FROM servers WHERE jump_server_id = ?1", [id], |r| {
+            r.get(0)
+        })?;
+        if used > 0 {
+            return Err(AppError::InvalidInput(
+                "다른 서버의 경유 서버로 쓰이는 서버는 경유 설정을 가질 수 없습니다".into(),
+            ));
         }
     }
     Ok(v)
@@ -214,8 +255,20 @@ pub fn create_server(db: &Db, input: &ServerInput) -> AppResult<Server> {
             "INSERT INTO servers (id, name, host, port, username, customer_id, folder_id, jump_server_id,
                                   is_production, favorite, note, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?12)",
-            params![id, v.name, v.host, v.port, v.username, v.customer_id, v.folder_id, v.jump_server_id,
-                    v.is_production, v.favorite, v.note, t],
+            params![
+                id,
+                v.name,
+                v.host,
+                v.port,
+                v.username,
+                v.customer_id,
+                v.folder_id,
+                v.jump_server_id,
+                v.is_production,
+                v.favorite,
+                v.note,
+                t
+            ],
         )?;
         Ok(get_server(c, &id)?.expect("방금 저장한 서버"))
     })
@@ -229,8 +282,20 @@ pub fn update_server(db: &Db, id: &str, input: &ServerInput) -> AppResult<Server
             "UPDATE servers SET name = ?2, host = ?3, port = ?4, username = ?5, customer_id = ?6, folder_id = ?7,
                     jump_server_id = ?8, is_production = ?9, favorite = ?10, note = ?11, updated_at = ?12
              WHERE id = ?1",
-            params![id, v.name, v.host, v.port, v.username, v.customer_id, v.folder_id, v.jump_server_id,
-                    v.is_production, v.favorite, v.note, now()],
+            params![
+                id,
+                v.name,
+                v.host,
+                v.port,
+                v.username,
+                v.customer_id,
+                v.folder_id,
+                v.jump_server_id,
+                v.is_production,
+                v.favorite,
+                v.note,
+                now()
+            ],
         )?;
         Ok(get_server(c, id)?.expect("방금 수정한 서버"))
     })
@@ -257,11 +322,16 @@ pub fn plan(db: &Db, id: &str, touch: bool) -> AppResult<(ConnectRequest, Sessio
     db.with_mut(|c| {
         let s = get_server(c, id)?.ok_or_else(|| AppError::InvalidInput("서버를 찾을 수 없습니다".into()))?;
         let jump = match &s.jump_server_id {
-            Some(j) => Some(get_server(c, j)?.ok_or_else(|| AppError::InvalidInput("경유 서버를 찾을 수 없습니다".into()))?),
+            Some(j) => {
+                Some(get_server(c, j)?.ok_or_else(|| AppError::InvalidInput("경유 서버를 찾을 수 없습니다".into()))?)
+            }
             None => None,
         };
         if touch {
-            c.execute("UPDATE servers SET last_connected_at = ?2 WHERE id = ?1", params![id, now()])?;
+            c.execute(
+                "UPDATE servers SET last_connected_at = ?2 WHERE id = ?1",
+                params![id, now()],
+            )?;
         }
         let label = SessionLabel {
             title: s.name.clone(),
@@ -270,8 +340,16 @@ pub fn plan(db: &Db, id: &str, touch: bool) -> AppResult<(ConnectRequest, Sessio
             jump_title: jump.as_ref().map(|j| j.name.clone()),
         };
         let req = ConnectRequest {
-            target: Endpoint { host: s.host, port: s.port, user: s.username },
-            jump: jump.map(|j| Endpoint { host: j.host, port: j.port, user: j.username }),
+            target: Endpoint {
+                host: s.host,
+                port: s.port,
+                user: s.username,
+            },
+            jump: jump.map(|j| Endpoint {
+                host: j.host,
+                port: j.port,
+                user: j.username,
+            }),
             connect_timeout: None,
         };
         Ok((req, label))
@@ -312,14 +390,22 @@ pub fn import_config(
     ordered.extend(items.iter().filter(|i| i.proxy_jump.is_some()));
 
     for item in ordered {
-        if existing.iter().any(|s| s.host == item.host && s.port == item.port && s.username == item.user) {
-            summary.skipped.push((item.alias.clone(), "같은 서버가 이미 등록되어 있습니다".into()));
+        if existing
+            .iter()
+            .any(|s| s.host == item.host && s.port == item.port && s.username == item.user)
+        {
+            summary
+                .skipped
+                .push((item.alias.clone(), "같은 서버가 이미 등록되어 있습니다".into()));
             continue;
         }
         let mut jump_server_id = None;
         if let Some(pj) = item.proxy_jump.as_deref() {
             if pj.contains(',') {
-                summary.warnings.push((item.alias.clone(), "여러 단계 경유는 지원하지 않아 경유 없이 가져왔습니다".into()));
+                summary.warnings.push((
+                    item.alias.clone(),
+                    "여러 단계 경유는 지원하지 않아 경유 없이 가져왔습니다".into(),
+                ));
             } else {
                 let name = crate::sshfiles::proxy_jump_host(pj);
                 let found = created
@@ -447,7 +533,13 @@ mod tests {
         assert_eq!(req.jump.unwrap().host, "192.0.2.10");
         assert_eq!(label.jump_server_id.as_deref(), Some(bastion.id.as_str()));
         assert_eq!(label.target_server_id.as_deref(), Some(target.id.as_str()));
-        assert!(catalog(&db).unwrap().servers.iter().any(|s| s.last_connected_at.is_some()));
+        assert!(
+            catalog(&db)
+                .unwrap()
+                .servers
+                .iter()
+                .any(|s| s.last_connected_at.is_some())
+        );
     }
 
     #[test]

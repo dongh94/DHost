@@ -1,13 +1,14 @@
 //! 기존 SSH 파일 활용 (OPEN-01 결정).
 //! - ~/.ssh/known_hosts: 사용자가 고른 항목만 DHost 저장소로 가져온다. 계속 함께 읽지는 않는다.
 //! - ~/.ssh/config: Host 항목을 서버 프로필 후보로 보여준다. 값은 `ssh -G`로 해석한다.
+//!
 //! 두 파일 모두 읽기만 하고 고치지 않는다.
 
 use std::path::PathBuf;
 use std::process::Command;
 
-use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD};
 use base64::Engine;
+use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -104,7 +105,9 @@ pub fn parse_config_aliases(content: &str) -> Vec<String> {
     for line in content.lines() {
         let line = line.trim();
         let mut it = line.splitn(2, |c: char| c.is_whitespace() || c == '=');
-        let (Some(k), Some(rest)) = (it.next(), it.next()) else { continue };
+        let (Some(k), Some(rest)) = (it.next(), it.next()) else {
+            continue;
+        };
         if !k.eq_ignore_ascii_case("host") {
             continue;
         }
@@ -166,17 +169,28 @@ pub fn scan_config() -> AppResult<Vec<ConfigCandidate>> {
         let user = get("user").unwrap_or_default();
         let port = get("port").and_then(|p| p.parse().ok()).unwrap_or(22);
         let proxy_jump = get("proxyjump").filter(|v| v != "none");
-        let problem = Endpoint { host: host.clone(), port, user: user.clone() }
-            .validate()
-            .err()
-            .map(|e| e.to_string())
-            .or_else(|| {
-                proxy_jump
-                    .as_ref()
-                    .filter(|p| p.contains(','))
-                    .map(|_| "여러 단계 경유는 지원하지 않아 경유 없이 가져옵니다".to_string())
-            });
-        out.push(ConfigCandidate { alias, host, port, user, proxy_jump, problem });
+        let problem = Endpoint {
+            host: host.clone(),
+            port,
+            user: user.clone(),
+        }
+        .validate()
+        .err()
+        .map(|e| e.to_string())
+        .or_else(|| {
+            proxy_jump
+                .as_ref()
+                .filter(|p| p.contains(','))
+                .map(|_| "여러 단계 경유는 지원하지 않아 경유 없이 가져옵니다".to_string())
+        });
+        out.push(ConfigCandidate {
+            alias,
+            host,
+            port,
+            user,
+            proxy_jump,
+            problem,
+        });
     }
     Ok(out)
 }

@@ -5,7 +5,7 @@ use std::io::{Read, Write};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
-use portable_pty::{native_pty_system, ChildKiller, MasterPty, PtySize};
+use portable_pty::{ChildKiller, MasterPty, PtySize, native_pty_system};
 
 use crate::error::{AppError, AppResult};
 use crate::events::{AppEvent, EventSink, SessionExit};
@@ -69,7 +69,12 @@ pub struct SessionManager {
 
 impl SessionManager {
     pub fn new(sink: Arc<dyn EventSink>, helper_exe: String, history: Option<Arc<HistoryStore>>) -> Self {
-        Self { sessions: Arc::new(Mutex::new(HashMap::new())), sink, history, helper_exe }
+        Self {
+            sessions: Arc::new(Mutex::new(HashMap::new())),
+            sink,
+            history,
+            helper_exe,
+        }
     }
 
     pub fn open(
@@ -96,18 +101,28 @@ impl SessionManager {
                 server_id: label.jump_server_id.clone(),
                 user: j.user.clone(),
                 host: j.host.clone(),
-                label: format!("경유 서버 {}", label.jump_title.clone().unwrap_or_else(|| j.host.clone())),
+                label: format!(
+                    "경유 서버 {}",
+                    label.jump_title.clone().unwrap_or_else(|| j.host.clone())
+                ),
             });
         }
         hops.push(Hop {
             server_id: label.target_server_id.clone(),
             user: req.target.user.clone(),
             host: req.target.host.clone(),
-            label: if req.jump.is_some() { format!("대상 서버 {}", label.title) } else { label.title.clone() },
+            label: if req.jump.is_some() {
+                format!("대상 서버 {}", label.title)
+            } else {
+                label.title.clone()
+            },
         });
         let t = &req.target;
         let history_id = self.history.as_ref().and_then(|h| {
-            let via = label.jump_title.clone().or_else(|| req.jump.as_ref().map(|j| j.host.clone()));
+            let via = label
+                .jump_title
+                .clone()
+                .or_else(|| req.jump.as_ref().map(|j| j.host.clone()));
             h.start(
                 label.target_server_id.as_deref(),
                 &label.title,
@@ -126,7 +141,12 @@ impl SessionManager {
         });
 
         let pair = native_pty_system()
-            .openpty(PtySize { cols: size.0, rows: size.1, pixel_width: 0, pixel_height: 0 })
+            .openpty(PtySize {
+                cols: size.0,
+                rows: size.1,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
             .map_err(|e| AppError::Internal(format!("PTY 생성 실패: {e}")))?;
         broker.register_session(&token, meta.clone());
         let mut child = match pair.slave.spawn_command(cmd) {
@@ -141,8 +161,14 @@ impl SessionManager {
         };
         drop(pair.slave);
 
-        let mut reader = pair.master.try_clone_reader().map_err(|e| AppError::Internal(e.to_string()))?;
-        let writer = pair.master.take_writer().map_err(|e| AppError::Internal(e.to_string()))?;
+        let mut reader = pair
+            .master
+            .try_clone_reader()
+            .map_err(|e| AppError::Internal(e.to_string()))?;
+        let writer = pair
+            .master
+            .take_writer()
+            .map_err(|e| AppError::Internal(e.to_string()))?;
         let killer = child.clone_killer();
 
         // 원격 출력 -> 화면. 출력 내용은 저장하지 않고, 인증 실패 문구만 확인한다.
@@ -214,19 +240,31 @@ impl SessionManager {
                 let reason = diagnosis.as_ref().map(|d| d.code.as_str());
                 let _ = h.finish(id, result, code.map(i64::from), reason);
             }
-            sink.emit(AppEvent::SessionExit(SessionExit { session_id: sid, exit_code: code, diagnosis }));
+            sink.emit(AppEvent::SessionExit(SessionExit {
+                session_id: sid,
+                exit_code: code,
+                diagnosis,
+            }));
         });
 
-        self.sessions
-            .lock()
-            .unwrap()
-            .insert(session_id.clone(), Session { master: pair.master, writer, killer, meta, gate });
+        self.sessions.lock().unwrap().insert(
+            session_id.clone(),
+            Session {
+                master: pair.master,
+                writer,
+                killer,
+                meta,
+                gate,
+            },
+        );
         Ok(session_id)
     }
 
     pub fn write(&self, id: &str, data: &[u8]) -> AppResult<()> {
         let mut sessions = self.sessions.lock().unwrap();
-        let s = sessions.get_mut(id).ok_or_else(|| AppError::SessionNotFound(id.into()))?;
+        let s = sessions
+            .get_mut(id)
+            .ok_or_else(|| AppError::SessionNotFound(id.into()))?;
         s.writer.write_all(data).map_err(|e| AppError::Internal(e.to_string()))
     }
 
@@ -234,7 +272,12 @@ impl SessionManager {
         let sessions = self.sessions.lock().unwrap();
         let s = sessions.get(id).ok_or_else(|| AppError::SessionNotFound(id.into()))?;
         s.master
-            .resize(PtySize { cols, rows, pixel_width: 0, pixel_height: 0 })
+            .resize(PtySize {
+                cols,
+                rows,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
             .map_err(|e| AppError::Internal(e.to_string()))
     }
 

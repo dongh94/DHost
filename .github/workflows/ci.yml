@@ -1,0 +1,75 @@
+# 푸시·PR마다 테스트, 정적 검사, 의존성 취약점, 비밀 정보 검사를 돌린다.
+# Docker E2E(tests/e2e_docker.rs)는 macOS 러너에 Docker가 없어 배포 전에 로컬에서 돌린다 (docs/release.md).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  secrets:
+    name: 비밀 정보 검사
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: 저장소 규칙 (파일 이름, 개인키, 실서버 IP)
+        run: scripts/check-secrets.sh
+      - name: gitleaks (전체 이력)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-test:
+    name: 빌드·테스트 (macOS Apple Silicon)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: 프런트엔드 테스트
+        run: pnpm test
+      - name: 프런트엔드 빌드 (타입 검사 포함)
+        run: pnpm build
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - name: 형식 검사
+        working-directory: src-tauri
+        run: cargo fmt --check
+      - name: clippy
+        working-directory: src-tauri
+        run: cargo clippy --all-targets --locked -- -D warnings
+      - name: Rust 단위 테스트
+        working-directory: src-tauri
+        run: cargo test --locked
+
+  audit:
+    name: 의존성 취약점 검사
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      - name: cargo audit
+        working-directory: src-tauri
+        run: cargo audit
+      - name: pnpm audit (운영 의존성)
+        run: npx --yes pnpm@10.27.0 audit --prod

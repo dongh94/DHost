@@ -1,0 +1,55 @@
+# v로 시작하는 태그(예: v0.2.0)를 올리면 Apple Silicon용 .dmg를 만들어 GitHub Release에 올린다.
+# 팀 내부 배포용이라 Apple 인증서 서명·공증은 하지 않는다 (ad-hoc 서명). 설치 안내: docs/install.md
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  dmg:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: 태그와 앱 버전 일치 확인
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          app=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          if [ "$tag" != "$app" ]; then
+            echo "태그 v$tag 와 tauri.conf.json 버전 $app 이 다릅니다"; exit 1
+          fi
+      - run: scripts/check-secrets.sh
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - name: Rust 단위 테스트
+        working-directory: src-tauri
+        run: cargo test --locked
+      - name: .dmg 빌드
+        run: pnpm tauri build --bundles dmg
+      - name: 체크섬
+        run: |
+          cd src-tauri/target/release/bundle/dmg
+          shasum -a 256 *.dmg > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      - name: GitHub Release 만들기
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            src-tauri/target/release/bundle/dmg/*.dmg \
+            src-tauri/target/release/bundle/dmg/SHA256SUMS.txt \
+            --title "DHost $GITHUB_REF_NAME" \
+            --notes "팀 내부 배포용 미서명 빌드입니다. 설치 방법: docs/install.md" \
+            --draft

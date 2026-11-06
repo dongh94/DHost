@@ -119,7 +119,10 @@ fn migrate(conn: &Connection) -> AppResult<()> {
 }
 
 pub fn now() -> i64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
 }
 
 impl From<rusqlite::Error> for AppError {
@@ -127,10 +130,10 @@ impl From<rusqlite::Error> for AppError {
         if let rusqlite::Error::SqliteFailure(f, _) = &e {
             match f.extended_code {
                 rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE => {
-                    return AppError::InvalidInput("같은 이름이 이미 있습니다".into())
+                    return AppError::InvalidInput("같은 이름이 이미 있습니다".into());
                 }
                 rusqlite::ffi::SQLITE_CONSTRAINT_FOREIGNKEY | rusqlite::ffi::SQLITE_CONSTRAINT_TRIGGER => {
-                    return AppError::InvalidInput("다른 항목이 사용 중이라 처리할 수 없습니다".into())
+                    return AppError::InvalidInput("다른 항목이 사용 중이라 처리할 수 없습니다".into());
                 }
                 _ => {}
             }

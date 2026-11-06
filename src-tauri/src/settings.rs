@@ -12,7 +12,10 @@ pub fn validate(key: &str, value: &str) -> AppResult<()> {
     let ok = match key {
         "theme" => matches!(value, "system" | "light" | "dark"),
         "terminal.fontSize" => value.parse::<u8>().map(|n| (10..=24).contains(&n)).unwrap_or(false),
-        "terminal.scrollback" => value.parse::<u32>().map(|n| (1_000..=50_000).contains(&n)).unwrap_or(false),
+        "terminal.scrollback" => value
+            .parse::<u32>()
+            .map(|n| (1_000..=50_000).contains(&n))
+            .unwrap_or(false),
         "ssh.connectTimeout" => value.parse::<u32>().map(|n| (5..=120).contains(&n)).unwrap_or(false),
         _ => return Err(AppError::InvalidInput(format!("알 수 없는 설정입니다: {key}"))),
     };

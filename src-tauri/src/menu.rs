@@ -46,7 +46,11 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
 
     let tab_items: Vec<MenuItem<R>> = (1..=9)
         .map(|n| {
-            let text = if n == 9 { "마지막 탭".to_string() } else { format!("{n}번째 탭") };
+            let text = if n == 9 {
+                "마지막 탭".to_string()
+            } else {
+                format!("{n}번째 탭")
+            };
             item(&format!("tab.{n}"), &text, Some(&format!("CmdOrCtrl+{n}")))
         })
         .collect::<tauri::Result<_>>()?;
@@ -58,8 +62,9 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let reset = item("term.reset", "터미널 화면 초기화", None)?;
     let search = item("search", "서버 검색", Some("CmdOrCtrl+K"))?;
     let (s1, s2, s3) = (sep()?, sep()?, sep()?);
-    let mut session_items: Vec<&dyn tauri::menu::IsMenuItem<R>> =
-        vec![&new_tab, &search, &s1, &close_tab, &reconnect, &reset, &s2, &next, &prev, &s3];
+    let mut session_items: Vec<&dyn tauri::menu::IsMenuItem<R>> = vec![
+        &new_tab, &search, &s1, &close_tab, &reconnect, &reset, &s2, &next, &prev, &s3,
+    ];
     session_items.extend(tab_items.iter().map(|i| i as &dyn tauri::menu::IsMenuItem<R>));
     let session = Submenu::with_items(app, "세션", true, &session_items)?;
 
@@ -81,7 +86,10 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         app,
         "윈도우",
         true,
-        &[&PredefinedMenuItem::minimize(app, Some("최소화"))?, &PredefinedMenuItem::maximize(app, Some("확대/축소"))?],
+        &[
+            &PredefinedMenuItem::minimize(app, Some("최소화"))?,
+            &PredefinedMenuItem::maximize(app, Some("확대/축소"))?,
+        ],
     )?;
 
     Menu::with_items(app, &[&app_menu, &edit, &session, &view, &window])

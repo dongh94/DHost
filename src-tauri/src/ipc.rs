@@ -35,7 +35,11 @@ pub enum HelperRequest {
         fingerprint: String,
     },
     #[serde(rename_all = "camelCase")]
-    Askpass { token: String, prompt: String, confirm: bool },
+    Askpass {
+        token: String,
+        prompt: String,
+        confirm: bool,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -49,7 +53,10 @@ pub enum HelperResponse {
 pub enum Answer {
     HostKey(bool),
     /// None이면 취소. save는 키체인에 저장할지 여부
-    Secret { secret: Option<String>, save: bool },
+    Secret {
+        secret: Option<String>,
+        save: bool,
+    },
 }
 
 pub struct Broker {
@@ -141,7 +148,14 @@ impl Broker {
 
     fn dispatch(&self, req: HelperRequest) -> HelperResponse {
         match req {
-            HelperRequest::KnownHosts { token, reason, host, key_type, key, fingerprint } => {
+            HelperRequest::KnownHosts {
+                token,
+                reason,
+                host,
+                key_type,
+                key,
+                fingerprint,
+            } => {
                 let Some(meta) = self.session_for(&token) else {
                     return HelperResponse::Denied;
                 };
@@ -152,7 +166,9 @@ impl Broker {
                 let Some(meta) = self.session_for(&token) else {
                     return HelperResponse::Denied;
                 };
-                HelperResponse::Askpass { secret: self.askpass(&meta, prompt, confirm) }
+                HelperResponse::Askpass {
+                    secret: self.askpass(&meta, prompt, confirm),
+                }
             }
         }
     }
@@ -189,11 +205,11 @@ impl Broker {
                             }
                             saved_was_wrong = was_auto;
                         }
-                    } else if let Some(id) = &server_id {
-                        if let Some(pw) = self.secrets.get(id) {
-                            f.autofilled.insert(i);
-                            return Some(pw);
-                        }
+                    } else if let Some(id) = &server_id
+                        && let Some(pw) = self.secrets.get(id)
+                    {
+                        f.autofilled.insert(i);
+                        return Some(pw);
                     }
                     (count > 1, saved_was_wrong)
                 }
@@ -259,10 +275,10 @@ impl Broker {
             // 저장된 키와 다르다. 저장된 키를 돌려주면 ssh가 연결을 차단한다 (FUN-04).
             meta.flags.lock().unwrap().hostkey_changed = true;
             self.sink.emit(AppEvent::HostKeyChanged(HostKeyChanged {
-                    session_id: meta.session_id.clone(),
-                    host: host.into(),
-                    key_type: key_type.into(),
-                    fingerprint: fingerprint.into(),
+                session_id: meta.session_id.clone(),
+                host: host.into(),
+                key_type: key_type.into(),
+                fingerprint: fingerprint.into(),
                 known_fingerprints: known.iter().map(|k| k.fingerprint.clone()).collect(),
             }));
             return lines();
@@ -271,10 +287,10 @@ impl Broker {
         // 처음 보는 호스트: 사용자가 승인해야만 신뢰한다.
         let (request_id, rx) = self.new_pending();
         self.sink.emit(AppEvent::HostKeyPrompt(HostKeyPrompt {
-                request_id: request_id.clone(),
-                session_id: meta.session_id.clone(),
-                host: host.into(),
-                key_type: key_type.into(),
+            request_id: request_id.clone(),
+            session_id: meta.session_id.clone(),
+            host: host.into(),
+            key_type: key_type.into(),
             fingerprint: fingerprint.into(),
         }));
         match self.wait(&request_id, rx) {
@@ -319,11 +335,17 @@ impl Broker {
 
 /// 비정상 종료로 남은 소켓 폴더(dhost-<pid>-<nonce>) 중 프로세스가 없는 것을 지운다.
 fn sweep_stale_dirs() {
-    let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else { return };
+    let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else {
+        return;
+    };
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
-        let Some(rest) = name.strip_prefix("dhost-") else { continue };
-        let Some(pid) = rest.split('-').next().and_then(|p| p.parse::<i32>().ok()) else { continue };
+        let Some(rest) = name.strip_prefix("dhost-") else {
+            continue;
+        };
+        let Some(pid) = rest.split('-').next().and_then(|p| p.parse::<i32>().ok()) else {
+            continue;
+        };
         // kill(pid, 0): 프로세스가 살아 있는지만 확인한다
         let alive = unsafe { libc::kill(pid, 0) } == 0;
         if !alive && entry.path().join("ipc.sock").exists() {

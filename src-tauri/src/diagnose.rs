@@ -87,7 +87,9 @@ pub fn diagnose(tail: &str, hops: &[Hop], flags: &Flags) -> Option<Diagnosis> {
 
     // 1) 이름 풀이 실패
     if let Some(l) = has("Could not resolve hostname ") {
-        let host = after(l, "Could not resolve hostname ").and_then(|r| r.split(':').next()).unwrap_or("");
+        let host = after(l, "Could not resolve hostname ")
+            .and_then(|r| r.split(':').next())
+            .unwrap_or("");
         return Some(d(
             "dns",
             "서버 주소를 찾을 수 없습니다",
@@ -108,7 +110,10 @@ pub fn diagnose(tail: &str, hops: &[Hop], flags: &Flags) -> Option<Diagnosis> {
             (
                 "refused",
                 "서버가 연결을 거부했습니다",
-                &["포트 번호가 맞는지 확인하세요.", "서버에서 sshd가 실행 중인지 관리자에게 확인하세요."],
+                &[
+                    "포트 번호가 맞는지 확인하세요.",
+                    "서버에서 sshd가 실행 중인지 관리자에게 확인하세요.",
+                ],
             )
         } else if reason.contains("timed out") {
             (
@@ -124,10 +129,17 @@ pub fn diagnose(tail: &str, hops: &[Hop], flags: &Flags) -> Option<Diagnosis> {
             (
                 "unreachable",
                 "네트워크로 서버에 갈 수 없습니다",
-                &["인터넷·VPN 연결을 확인하세요.", "사내망 서버라면 경유 서버 설정이 필요한지 확인하세요."],
+                &[
+                    "인터넷·VPN 연결을 확인하세요.",
+                    "사내망 서버라면 경유 서버 설정이 필요한지 확인하세요.",
+                ],
             )
         } else {
-            ("unknown", "서버에 연결하지 못했습니다", &["주소와 포트, 네트워크 상태를 확인하세요."])
+            (
+                "unknown",
+                "서버에 연결하지 못했습니다",
+                &["주소와 포트, 네트워크 상태를 확인하세요."],
+            )
         };
         return Some(d(code, title, format!("{host} 포트 연결 실패: {reason}"), hints, hop));
     }
@@ -169,7 +181,9 @@ pub fn diagnose(tail: &str, hops: &[Hop], flags: &Flags) -> Option<Diagnosis> {
 
     // 4) 알고리즘 협상 실패 (오래된 서버·장비)
     if let Some(l) = has("Unable to negotiate with ") {
-        let host = after(l, "Unable to negotiate with ").and_then(|r| r.split(' ').next()).unwrap_or("");
+        let host = after(l, "Unable to negotiate with ")
+            .and_then(|r| r.split(' ').next())
+            .unwrap_or("");
         let what = if l.contains("host key type") {
             "호스트 키 종류"
         } else if l.contains("key exchange") {
@@ -207,7 +221,10 @@ pub fn diagnose(tail: &str, hops: &[Hop], flags: &Flags) -> Option<Diagnosis> {
             "auth_password",
             "비밀번호가 맞지 않습니다",
             "입력한 비밀번호로 로그인하지 못했습니다.".into(),
-            &["사용자 이름과 비밀번호를 확인하세요.", "여러 번 틀리면 계정이 잠길 수 있습니다."],
+            &[
+                "사용자 이름과 비밀번호를 확인하세요.",
+                "여러 번 틀리면 계정이 잠길 수 있습니다.",
+            ],
             hop,
         ));
     }
@@ -225,7 +242,9 @@ pub fn diagnose(tail: &str, hops: &[Hop], flags: &Flags) -> Option<Diagnosis> {
         let who = l.split(": Permission denied").next().unwrap_or("");
         let host = who.rsplit_once('@').map(|(_, h)| h).unwrap_or("");
         let hop = hop_of(hops, host).or(target.clone());
-        let methods = after(l, "Permission denied (").and_then(|r| r.split(')').next()).unwrap_or("");
+        let methods = after(l, "Permission denied (")
+            .and_then(|r| r.split(')').next())
+            .unwrap_or("");
         if !methods.contains("password") && !methods.contains("keyboard-interactive") {
             return Some(d(
                 "auth_key_only",
@@ -244,7 +263,10 @@ pub fn diagnose(tail: &str, hops: &[Hop], flags: &Flags) -> Option<Diagnosis> {
                 "auth_password",
                 "비밀번호가 맞지 않습니다",
                 "입력한 비밀번호로 로그인하지 못했습니다.".into(),
-                &["사용자 이름과 비밀번호를 확인하세요.", "여러 번 틀리면 계정이 잠길 수 있습니다."],
+                &[
+                    "사용자 이름과 비밀번호를 확인하세요.",
+                    "여러 번 틀리면 계정이 잠길 수 있습니다.",
+                ],
                 hop,
             )
         } else {
@@ -259,24 +281,37 @@ pub fn diagnose(tail: &str, hops: &[Hop], flags: &Flags) -> Option<Diagnosis> {
     }
 
     // 6) 접속 도중이나 직후 끊김
-    if lines.iter().rev().take(5).any(|l| {
-        l.contains("Broken pipe") || l.contains("not responding") || l.contains("closed by remote host")
-    }) && !lines.iter().any(|l| l.contains("kex_exchange_identification"))
+    if lines
+        .iter()
+        .rev()
+        .take(5)
+        .any(|l| l.contains("Broken pipe") || l.contains("not responding") || l.contains("closed by remote host"))
+        && !lines.iter().any(|l| l.contains("kex_exchange_identification"))
     {
         return Some(d(
             "lost",
             "연결이 끊어졌습니다",
             "네트워크가 끊기거나 서버가 연결을 닫았습니다.".into(),
-            &["네트워크·VPN 상태를 확인한 뒤 재접속하세요.", "오래 쓰지 않으면 방화벽이 연결을 끊을 수 있습니다."],
+            &[
+                "네트워크·VPN 상태를 확인한 뒤 재접속하세요.",
+                "오래 쓰지 않으면 방화벽이 연결을 끊을 수 있습니다.",
+            ],
             None,
         ));
     }
-    if let Some(l) = has("kex_exchange_identification").or_else(|| has("Connection closed by ")).or_else(|| has("Connection reset by ")) {
+    if let Some(l) = has("kex_exchange_identification")
+        .or_else(|| has("Connection closed by "))
+        .or_else(|| has("Connection reset by "))
+    {
         let host = after(l, "by ").and_then(|r| r.split(' ').next()).unwrap_or("");
         let invalid = l.contains("invalid format") || l.contains("banner");
         return Some(d(
             if invalid { "not_ssh" } else { "closed_early" },
-            if invalid { "SSH 서버가 아닌 것 같습니다" } else { "서버가 접속 직후 연결을 끊었습니다" },
+            if invalid {
+                "SSH 서버가 아닌 것 같습니다"
+            } else {
+                "서버가 접속 직후 연결을 끊었습니다"
+            },
             if invalid {
                 "포트에서 SSH가 아닌 응답이 왔습니다.".into()
             } else {
@@ -297,9 +332,12 @@ pub fn diagnose(tail: &str, hops: &[Hop], flags: &Flags) -> Option<Diagnosis> {
     Some(d(
         "unknown",
         "연결이 실패했습니다",
-        lines.iter().rev().find(|l| l.starts_with("ssh:") || l.contains("error")).map(|l| l.to_string()).unwrap_or_else(
-            || "ssh가 오류로 끝났지만 원인을 특정하지 못했습니다.".into(),
-        ),
+        lines
+            .iter()
+            .rev()
+            .find(|l| l.starts_with("ssh:") || l.contains("error"))
+            .map(|l| l.to_string())
+            .unwrap_or_else(|| "ssh가 오류로 끝났지만 원인을 특정하지 못했습니다.".into()),
         &["터미널에 남은 메시지를 확인하세요."],
         None,
     ))
@@ -311,8 +349,18 @@ mod tests {
 
     fn hops() -> Vec<Hop> {
         vec![
-            Hop { server_id: None, user: "dhost".into(), host: "127.0.0.1".into(), label: "경유 서버 bastion".into() },
-            Hop { server_id: None, user: "dhost".into(), host: "target".into(), label: "대상 서버 target".into() },
+            Hop {
+                server_id: None,
+                user: "dhost".into(),
+                host: "127.0.0.1".into(),
+                label: "경유 서버 bastion".into(),
+            },
+            Hop {
+                server_id: None,
+                user: "dhost".into(),
+                host: "target".into(),
+                label: "대상 서버 target".into(),
+            },
         ]
     }
 
@@ -322,10 +370,21 @@ mod tests {
 
     #[test]
     fn network_failures() {
-        let x = run("ssh: connect to host 127.0.0.1 port 2299: Connection refused\r\nConnection closed by UNKNOWN port 65535\r\n");
-        assert_eq!((x.code.as_str(), x.hop.as_deref()), ("refused", Some("경유 서버 bastion")));
-        assert_eq!(run("ssh: connect to host 192.0.2.1 port 22: Operation timed out").code, "timeout");
-        assert_eq!(run("ssh: connect to host 192.0.2.1 port 22: No route to host").code, "unreachable");
+        let x = run(
+            "ssh: connect to host 127.0.0.1 port 2299: Connection refused\r\nConnection closed by UNKNOWN port 65535\r\n",
+        );
+        assert_eq!(
+            (x.code.as_str(), x.hop.as_deref()),
+            ("refused", Some("경유 서버 bastion"))
+        );
+        assert_eq!(
+            run("ssh: connect to host 192.0.2.1 port 22: Operation timed out").code,
+            "timeout"
+        );
+        assert_eq!(
+            run("ssh: connect to host 192.0.2.1 port 22: No route to host").code,
+            "unreachable"
+        );
         let x = run("ssh: Could not resolve hostname nosuch.invalid: nodename nor servname provided, or not known");
         assert_eq!(x.code, "dns");
         assert!(x.detail.contains("nosuch.invalid"));
@@ -334,43 +393,82 @@ mod tests {
     #[test]
     fn jump_forwarding() {
         let x = run("channel 0: open failed: connect failed: Name does not resolve\r\nstdio forwarding failed\r\n");
-        assert_eq!((x.code.as_str(), x.hop.as_deref()), ("forward_failed", Some("대상 서버 target")));
-        assert_eq!(run("channel 0: open failed: administratively prohibited: open failed").code, "forward_denied");
+        assert_eq!(
+            (x.code.as_str(), x.hop.as_deref()),
+            ("forward_failed", Some("대상 서버 target"))
+        );
+        assert_eq!(
+            run("channel 0: open failed: administratively prohibited: open failed").code,
+            "forward_denied"
+        );
     }
 
     #[test]
     fn auth() {
         let mut f = Flags::default();
         f.password_prompts.insert(1, 3);
-        let x = diagnose("dhost@target: Permission denied (publickey,password,keyboard-interactive).", &hops(), &f).unwrap();
-        assert_eq!((x.code.as_str(), x.hop.as_deref()), ("auth_password", Some("대상 서버 target")));
+        let x = diagnose(
+            "dhost@target: Permission denied (publickey,password,keyboard-interactive).",
+            &hops(),
+            &f,
+        )
+        .unwrap();
+        assert_eq!(
+            (x.code.as_str(), x.hop.as_deref()),
+            ("auth_password", Some("대상 서버 target"))
+        );
         let x = run("dhost@127.0.0.1: Permission denied (publickey).");
-        assert_eq!((x.code.as_str(), x.hop.as_deref()), ("auth_key_only", Some("경유 서버 bastion")));
-        assert_eq!(run("Received disconnect from 192.0.2.1 port 22:2: Too many authentication failures").code, "auth_too_many");
+        assert_eq!(
+            (x.code.as_str(), x.hop.as_deref()),
+            ("auth_key_only", Some("경유 서버 bastion"))
+        );
+        assert_eq!(
+            run("Received disconnect from 192.0.2.1 port 22:2: Too many authentication failures").code,
+            "auth_too_many"
+        );
         // 비밀번호를 다시 물었다면 시도 횟수 초과 메시지여도 비밀번호 문제로 본다
         let mut f = Flags::default();
         f.password_prompts.insert(0, 3);
-        let x = diagnose("Received disconnect from 127.0.0.1 port 22:2: Too many authentication failures", &hops(), &f).unwrap();
-        assert_eq!((x.code.as_str(), x.hop.as_deref()), ("auth_password", Some("경유 서버 bastion")));
+        let x = diagnose(
+            "Received disconnect from 127.0.0.1 port 22:2: Too many authentication failures",
+            &hops(),
+            &f,
+        )
+        .unwrap();
+        assert_eq!(
+            (x.code.as_str(), x.hop.as_deref()),
+            ("auth_password", Some("경유 서버 bastion"))
+        );
     }
 
     #[test]
     fn negotiation_and_early_close() {
-        let x = run("Unable to negotiate with 127.0.0.1 port 2222: no matching host key type found. Their offer: ssh-rsa");
+        let x =
+            run("Unable to negotiate with 127.0.0.1 port 2222: no matching host key type found. Their offer: ssh-rsa");
         assert_eq!(x.code, "kex_legacy");
         assert!(x.detail.contains("호스트 키 종류"));
-        assert_eq!(run("kex_exchange_identification: Connection closed by remote host").code, "closed_early");
+        assert_eq!(
+            run("kex_exchange_identification: Connection closed by remote host").code,
+            "closed_early"
+        );
         assert_eq!(run("kex_exchange_identification: banner line contains invalid characters\r\nbanner exchange: Connection to 127.0.0.1 port 2399: invalid format").code, "not_ssh");
-        assert_eq!(run("Last login: today\r\n$ uptime\r\nclient_loop: send disconnect: Broken pipe").code, "lost");
+        assert_eq!(
+            run("Last login: today\r\n$ uptime\r\nclient_loop: send disconnect: Broken pipe").code,
+            "lost"
+        );
     }
 
     #[test]
     fn user_intent_and_hostkeys() {
-        let mut f = Flags::default();
-        f.auth_cancelled = true;
+        let f = Flags {
+            auth_cancelled: true,
+            ..Default::default()
+        };
         assert!(diagnose("whatever", &hops(), &f).is_none());
-        let mut f = Flags::default();
-        f.hostkey_changed = true;
+        let f = Flags {
+            hostkey_changed: true,
+            ..Default::default()
+        };
         assert_eq!(diagnose("", &hops(), &f).unwrap().code, "hostkey_changed");
         assert_eq!(run("something odd happened").code, "unknown");
     }

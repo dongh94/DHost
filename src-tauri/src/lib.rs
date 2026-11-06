@@ -25,11 +25,11 @@ use db::Db;
 use events::{EventSink, TauriSink};
 use history::HistoryStore;
 use hostkeys::HostKeyStore;
-use secrets::{KeychainStore, SecretStore};
 use ipc::Broker;
+use secrets::{KeychainStore, SecretStore};
 use session::SessionManager;
-use ssh::openssh::OpenSshEngine;
 use ssh::SshEngine;
+use ssh::openssh::OpenSshEngine;
 
 pub use helper::run_if_helper;
 
@@ -117,11 +117,11 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
-            if let tauri::RunEvent::Exit = event {
-                if let Some(state) = app.try_state::<AppState>() {
-                    state.sessions.close_all();
-                    state.broker.shutdown();
-                }
+            if let tauri::RunEvent::Exit = event
+                && let Some(state) = app.try_state::<AppState>()
+            {
+                state.sessions.close_all();
+                state.broker.shutdown();
             }
         });
 }

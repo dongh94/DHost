@@ -1,0 +1,7 @@
+# gitleaks 기본 규칙에 더해, 로컬 Docker 테스트 서버의 가상 비밀번호만 예외로 둔다 (실서버 값 아님).
+[extend]
+useDefault = true
+
+[allowlist]
+description = "dev/test-env 테스트 서버의 가상 비밀번호"
+regexes = ['''dhost-test-pw''']

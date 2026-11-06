@@ -67,3 +67,11 @@ PRD의 미결정 항목(OPEN-xx) 중 정한 것을 기록한다. 바꿀 때는 �
 - OSC 8 링크에서 화면에 보이는 주소와 실제 주소의 사이트가 다르면 빨간 경고를 띄운다.
 - 창 조작·보고 요청(CSI t), 클립보드 쓰기(OSC 52)는 지원하지 않는다. 원격이 바꾼 창 제목도 쓰지 않는다.
 - 바이너리 출력 등으로 화면이 깨지면 **화면 초기화**로 터미널 상태만 되돌린다. 연결은 유지된다.
+
+### 배포 준비
+- **최소 macOS 12 Monterey.** DHost는 시스템 `/usr/bin/ssh`의 `KnownHostsCommand`·`SSH_ASKPASS_REQUIRE`(OpenSSH 8.5+)에 기대는데, macOS 12가 OpenSSH 8.6을 기본 탑재한 첫 버전이다. 11 Big Sur는 8.1이라 지원하지 않는다.
+- **Apple Silicon 전용 .dmg**(aarch64). M2 우선 요구에 맞춘다. Intel 빌드는 요청이 있으면 universal로 추가한다.
+- **ad-hoc 서명**(`signingIdentity: "-"`). 인증서·공증 없음. 처음 열 때 Gatekeeper 허용 안내를 [install.md](install.md)에 둔다. 버전이 바뀌면 키체인 접근 확인 창이 다시 뜰 수 있다.
+- **CI**: 비밀 정보 검사(자체 스크립트 + gitleaks), macOS에서 테스트·clippy·형식 검사, cargo/pnpm audit. Docker E2E는 배포 전 로컬에서 돌린다.
+- **배포**: `v*` 태그를 올리면 .dmg와 SHA256 체크섬을 초안 Release로 올린다. 관리자가 확인 후 공개한다.
+- Rust 코드 형식은 rustfmt(`max_width = 120`)로 통일하고 CI에서 검사한다.

@@ -1,14 +1,14 @@
-use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::State;
+use tauri::ipc::{Channel, InvokeResponseBody};
 
+use crate::AppState;
 use crate::error::{AppError, AppResult};
+use crate::history::HistoryEntry;
 use crate::hostkeys::HostKey;
 use crate::ipc::Answer;
 use crate::profiles::{self, Catalog, Customer, Folder, Server, ServerInput};
-use crate::history::HistoryEntry;
 use crate::session::SessionLabel;
 use crate::ssh::{ConnectRequest, EngineInfo};
-use crate::AppState;
 
 /// 현재 SSH 엔진의 이름, 버전, 필요 기능 지원 여부를 반환한다.
 #[tauri::command]
@@ -234,7 +234,10 @@ pub fn known_hosts_scan(state: State<'_, AppState>) -> AppResult<KnownHostsScanV
             .into_iter()
             .map(|c| {
                 let already_trusted = trusted.iter().any(|t| t.host == c.host && t.key == c.key);
-                KnownHostView { item: c, already_trusted }
+                KnownHostView {
+                    item: c,
+                    already_trusted,
+                }
             })
             .collect(),
         hashed: scan.hashed,
@@ -255,7 +258,9 @@ pub struct KnownHostImport {
 pub fn known_hosts_import(state: State<'_, AppState>, items: Vec<KnownHostImport>) -> AppResult<usize> {
     let mut n = 0;
     for i in items {
-        let Some(fp) = crate::sshfiles::fingerprint(&i.key) else { continue };
+        let Some(fp) = crate::sshfiles::fingerprint(&i.key) else {
+            continue;
+        };
         state.hostkeys.add(&i.host, &i.key_type, &i.key, &fp)?;
         n += 1;
     }
@@ -283,7 +288,10 @@ pub fn ssh_config_import(
 pub fn server_effective_config(state: State<'_, AppState>, id: String) -> AppResult<Vec<crate::ssh::ConfigEntry>> {
     let (request, _) = profiles::plan(&state.db, &id, false)?;
     let ctx = crate::ssh::HelperContext {
-        exe: std::env::current_exe().map_err(|e| AppError::Internal(e.to_string()))?.to_string_lossy().into_owned(),
+        exe: std::env::current_exe()
+            .map_err(|e| AppError::Internal(e.to_string()))?
+            .to_string_lossy()
+            .into_owned(),
         socket_path: String::new(),
         session_token: String::new(),
     };

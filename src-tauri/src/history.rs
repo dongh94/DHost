@@ -7,7 +7,7 @@ use std::sync::Arc;
 use rusqlite::params;
 use serde::Serialize;
 
-use crate::db::{now, Db};
+use crate::db::{Db, now};
 use crate::error::AppResult;
 
 pub const RETENTION_DAYS: i64 = 30;
@@ -111,11 +111,14 @@ mod tests {
         let p = std::env::temp_dir().join(format!("dhost-test-{}.db", uuid::Uuid::new_v4()));
         let db = Db::open(&p).unwrap();
         let h = HistoryStore::new(db.clone());
-        let a = h.start(Some("s1"), "web-01", "ops@192.0.2.11:22", Some("bastion")).unwrap();
+        let a = h
+            .start(Some("s1"), "web-01", "ops@192.0.2.11:22", Some("bastion"))
+            .unwrap();
         let b = h.start(None, "quick", "x@192.0.2.12:22", None).unwrap();
         h.finish(a, "closed", Some(0), None).unwrap();
         // 아주 오래된 기록
-        db.with(|c| c.execute("UPDATE connection_history SET started_at = 1 WHERE id = ?1", [a])).unwrap();
+        db.with(|c| c.execute("UPDATE connection_history SET started_at = 1 WHERE id = ?1", [a]))
+            .unwrap();
         h.maintain().unwrap();
         let list = h.list(10).unwrap();
         assert_eq!(list.len(), 1);

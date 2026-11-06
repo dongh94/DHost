@@ -41,7 +41,9 @@ pub fn run_if_helper() -> Option<i32> {
 
     // SSH_ASKPASS로 실행됨. SSH_ASKPASS_PROMPT=confirm이면 예/아니오 확인이다.
     let prompt = args.get(1).cloned().unwrap_or_default();
-    let confirm = std::env::var("SSH_ASKPASS_PROMPT").map(|v| v == "confirm").unwrap_or(false);
+    let confirm = std::env::var("SSH_ASKPASS_PROMPT")
+        .map(|v| v == "confirm")
+        .unwrap_or(false);
     let req = HelperRequest::Askpass { token, prompt, confirm };
     Some(match send(&req) {
         Some(HelperResponse::Askpass { secret: Some(s) }) => {

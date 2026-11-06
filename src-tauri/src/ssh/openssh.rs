@@ -20,6 +20,12 @@ impl OpenSshEngine {
     }
 }
 
+impl Default for OpenSshEngine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SshEngine for OpenSshEngine {
     fn probe(&self) -> AppResult<EngineInfo> {
         // `ssh -V`는 버전을 stderr로 출력한다.
@@ -60,7 +66,9 @@ impl SshEngine for OpenSshEngine {
             .output()
             .map_err(|e| AppError::Internal(format!("ssh -G 실행 실패: {e}")))?;
         if !output.status.success() {
-            return Err(AppError::Internal(String::from_utf8_lossy(&output.stderr).trim().to_string()));
+            return Err(AppError::Internal(
+                String::from_utf8_lossy(&output.stderr).trim().to_string(),
+            ));
         }
         Ok(crate::sshfiles::parse_ssh_g(&String::from_utf8_lossy(&output.stdout))
             .into_iter()
@@ -114,7 +122,9 @@ fn common_options(known_hosts_command: &str) -> Vec<String> {
 
 fn known_hosts_command(exe: &str, pct: &str) -> AppResult<String> {
     if exe.contains('"') || exe.contains('\\') {
-        return Err(AppError::Internal("실행 파일 경로에 허용되지 않는 문자가 있습니다".into()));
+        return Err(AppError::Internal(
+            "실행 파일 경로에 허용되지 않는 문자가 있습니다".into(),
+        ));
     }
     // ssh는 이 값에서 %토큰을 치환하므로 경로 안의 %는 이스케이프한다.
     let exe = exe.replace('%', &pct.repeat(2));
@@ -221,7 +231,11 @@ mod tests {
     #[test]
     fn direct_args_end_with_destination() {
         let req = ConnectRequest {
-            target: Endpoint { host: "192.0.2.10".into(), port: 2222, user: "dhost".into() },
+            target: Endpoint {
+                host: "192.0.2.10".into(),
+                port: 2222,
+                user: "dhost".into(),
+            },
             jump: None,
             connect_timeout: Some(15),
         };
@@ -233,14 +247,25 @@ mod tests {
             &"KnownHostsCommand=\"/Applications/DHost.app/Contents/MacOS/dhost\" --dhost-known-hosts %I %H %t %K %f"
                 .to_string()
         ));
-        assert_eq!(&args[args.len() - 6..], ["-p", "2222", "-l", "dhost", "--", "192.0.2.10"]);
+        assert_eq!(
+            &args[args.len() - 6..],
+            ["-p", "2222", "-l", "dhost", "--", "192.0.2.10"]
+        );
     }
 
     #[test]
     fn jump_uses_escaped_proxy_command() {
         let req = ConnectRequest {
-            target: Endpoint { host: "target".into(), port: 22, user: "dhost".into() },
-            jump: Some(Endpoint { host: "bastion.example.com".into(), port: 2222, user: "ops".into() }),
+            target: Endpoint {
+                host: "target".into(),
+                port: 22,
+                user: "dhost".into(),
+            },
+            jump: Some(Endpoint {
+                host: "bastion.example.com".into(),
+                port: 2222,
+                user: "ops".into(),
+            }),
             connect_timeout: Some(10),
         };
         let args = build_args(&req, &ctx()).unwrap();

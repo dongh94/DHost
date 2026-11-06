@@ -9,10 +9,10 @@ use std::collections::{HashMap, HashSet};
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
-use rusqlite::{params, OptionalExtension};
+use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
-use crate::db::{now, Db};
+use crate::db::{Db, now};
 use crate::error::{AppError, AppResult};
 use crate::ssh::Endpoint;
 
@@ -88,7 +88,12 @@ pub fn build(db: &Db, include_host_keys: bool) -> AppResult<BackupFile> {
         crate::hostkeys::HostKeyStore::new_for(db)
             .list()?
             .into_iter()
-            .map(|k| BackupHostKey { host: k.host, key_type: k.key_type, key: k.key, fingerprint: k.fingerprint })
+            .map(|k| BackupHostKey {
+                host: k.host,
+                key_type: k.key_type,
+                key: k.key,
+                fingerprint: k.fingerprint,
+            })
             .collect()
     } else {
         vec![]
@@ -98,11 +103,19 @@ pub fn build(db: &Db, include_host_keys: bool) -> AppResult<BackupFile> {
         version: VERSION,
         exported_at: now(),
         app_version: env!("CARGO_PKG_VERSION").into(),
-        customers: cat.customers.into_iter().map(|c| BackupCustomer { id: c.id, name: c.name }).collect(),
+        customers: cat
+            .customers
+            .into_iter()
+            .map(|c| BackupCustomer { id: c.id, name: c.name })
+            .collect(),
         folders: cat
             .folders
             .into_iter()
-            .map(|f| BackupFolder { id: f.id, customer_id: f.customer_id, name: f.name })
+            .map(|f| BackupFolder {
+                id: f.id,
+                customer_id: f.customer_id,
+                name: f.name,
+            })
             .collect(),
         servers: cat
             .servers
@@ -138,15 +151,17 @@ pub fn export(db: &Db, path: &Path, include_host_keys: bool) -> AppResult<Backup
 pub fn read(path: &Path) -> AppResult<BackupFile> {
     let meta = std::fs::metadata(path).map_err(|e| AppError::InvalidInput(format!("파일을 열 수 없습니다: {e}")))?;
     if meta.len() > MAX_BYTES {
-        return Err(AppError::InvalidInput("파일이 너무 큽니다. DHost 백업 파일이 아닙니다".into()));
+        return Err(AppError::InvalidInput(
+            "파일이 너무 큽니다. DHost 백업 파일이 아닙니다".into(),
+        ));
     }
     let bytes = std::fs::read(path).map_err(|e| AppError::InvalidInput(format!("파일을 읽을 수 없습니다: {e}")))?;
     parse(&bytes)
 }
 
 pub fn parse(bytes: &[u8]) -> AppResult<BackupFile> {
-    let data: BackupFile =
-        serde_json::from_slice(bytes).map_err(|e| AppError::InvalidInput(format!("DHost 백업 파일 형식이 아닙니다: {e}")))?;
+    let data: BackupFile = serde_json::from_slice(bytes)
+        .map_err(|e| AppError::InvalidInput(format!("DHost 백업 파일 형식이 아닙니다: {e}")))?;
     if data.format != FORMAT {
         return Err(AppError::InvalidInput("DHost 백업 파일이 아닙니다".into()));
     }
@@ -215,7 +230,11 @@ pub fn preview(db: &Db, data: &BackupFile) -> AppResult<Preview> {
     let duplicates = data
         .servers
         .iter()
-        .filter(|s| existing.iter().any(|e| e.host == s.host && e.port == s.port && e.username == s.username))
+        .filter(|s| {
+            existing
+                .iter()
+                .any(|e| e.host == s.host && e.port == s.port && e.username == s.username)
+        })
         .count();
     let (_, problems) = validate(data);
     Ok(Preview {
@@ -236,8 +255,11 @@ pub fn preview(db: &Db, data: &BackupFile) -> AppResult<Preview> {
 fn validate(data: &BackupFile) -> (HashSet<String>, Vec<String>) {
     let mut problems = vec![];
     let customer_ids: HashSet<&str> = data.customers.iter().map(|c| c.id.as_str()).collect();
-    let folder_owner: HashMap<&str, &str> =
-        data.folders.iter().map(|f| (f.id.as_str(), f.customer_id.as_str())).collect();
+    let folder_owner: HashMap<&str, &str> = data
+        .folders
+        .iter()
+        .map(|f| (f.id.as_str(), f.customer_id.as_str()))
+        .collect();
     for f in &data.folders {
         if !customer_ids.contains(f.customer_id.as_str()) {
             problems.push(format!("폴더 '{}': 고객사를 찾을 수 없습니다", f.name));
@@ -253,7 +275,13 @@ fn validate(data: &BackupFile) -> (HashSet<String>, Vec<String>) {
             why = Some("이름이 올바르지 않습니다".into());
         } else if s.note.chars().count() > 2000 {
             why = Some("메모가 너무 깁니다".into());
-        } else if let Err(e) = (Endpoint { host: s.host.clone(), port: s.port, user: s.username.clone() }).validate() {
+        } else if let Err(e) = (Endpoint {
+            host: s.host.clone(),
+            port: s.port,
+            user: s.username.clone(),
+        })
+        .validate()
+        {
             why = Some(e.to_string());
         } else if s.customer_id.as_deref().is_some_and(|c| !customer_ids.contains(c)) {
             why = Some("고객사를 찾을 수 없습니다".into());
@@ -276,13 +304,19 @@ fn validate(data: &BackupFile) -> (HashSet<String>, Vec<String>) {
         if let Some(j) = &s.jump_server_id {
             let valid = j != &s.id && by_id.get(j.as_str()).is_some_and(|t| t.jump_server_id.is_none());
             if !valid {
-                problems.push(format!("서버 '{}': 경유 서버 설정이 올바르지 않아 경유 없이 복원합니다", s.name));
+                problems.push(format!(
+                    "서버 '{}': 경유 서버 설정이 올바르지 않아 경유 없이 복원합니다",
+                    s.name
+                ));
             }
         }
     }
     for k in &data.host_keys {
         if crate::sshfiles::fingerprint(&k.key).as_deref() != Some(k.fingerprint.as_str()) {
-            problems.push(format!("호스트 키 '{}': 지문이 키와 맞지 않아 가져오지 않습니다", k.host));
+            problems.push(format!(
+                "호스트 키 '{}': 지문이 키와 맞지 않아 가져오지 않습니다",
+                k.host
+            ));
         }
     }
     for (key, value) in &data.settings {
@@ -497,7 +531,11 @@ mod tests {
     }
 
     fn all() -> RestoreOptions {
-        RestoreOptions { mode: RestoreMode::Merge, host_keys: true, settings: true }
+        RestoreOptions {
+            mode: RestoreMode::Merge,
+            host_keys: true,
+            settings: true,
+        }
     }
 
     #[test]
@@ -511,7 +549,10 @@ mod tests {
 
         let dst = db();
         let r = restore(&dst, &parse(json.as_bytes()).unwrap(), &all()).unwrap();
-        assert_eq!((r.customers, r.folders, r.servers, r.host_keys, r.settings), (1, 1, 2, 1, 1));
+        assert_eq!(
+            (r.customers, r.folders, r.servers, r.host_keys, r.settings),
+            (1, 1, 2, 1, 1)
+        );
         let cat = profiles::catalog(&dst).unwrap();
         let bastion = cat.servers.iter().find(|s| s.name == "bastion").unwrap();
         let web = cat.servers.iter().find(|s| s.name == "prod-web").unwrap();
@@ -533,10 +574,23 @@ mod tests {
         let data = build(&src, false).unwrap();
         let dst = db();
         profiles::create_server(&dst, &server("old", "192.0.2.99", None, None)).unwrap();
-        let r = restore(&dst, &data, &RestoreOptions { mode: RestoreMode::Replace, host_keys: false, settings: false })
-            .unwrap();
+        let r = restore(
+            &dst,
+            &data,
+            &RestoreOptions {
+                mode: RestoreMode::Replace,
+                host_keys: false,
+                settings: false,
+            },
+        )
+        .unwrap();
         assert_eq!(r.removed_server_ids.len(), 1);
-        let names: Vec<_> = profiles::catalog(&dst).unwrap().servers.into_iter().map(|s| s.name).collect();
+        let names: Vec<_> = profiles::catalog(&dst)
+            .unwrap()
+            .servers
+            .into_iter()
+            .map(|s| s.name)
+            .collect();
         assert!(!names.contains(&"old".to_string()));
         assert_eq!(names.len(), 2);
     }
@@ -591,7 +645,7 @@ mod tests {
         let r = restore(&dst, &data, &all()).unwrap();
         assert_eq!(r.servers, 2, "올바른 서버만 복원");
         assert_eq!(r.host_keys, 0, "위조된 호스트 키는 가져오지 않음");
-        assert!(crate::settings::get_all(&dst).unwrap().get("password").is_none());
+        assert!(!crate::settings::get_all(&dst).unwrap().contains_key("password"));
     }
 
     #[test]
