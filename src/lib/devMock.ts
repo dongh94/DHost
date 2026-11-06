@@ -17,6 +17,7 @@ export function installDevMock() {
     favorite: false,
     note: "",
     lastConnectedAt: null,
+    identityFile: null,
     ...p,
   });
   const catalog: Catalog = {
@@ -33,20 +34,22 @@ export function installDevMock() {
       s({ id: "s1", name: "bastion", host: "bastion.example.com", customerId: "c1", folderId: "f1", favorite: true, lastConnectedAt: now - 300 }),
       s({ id: "s2", name: "web-01", host: "192.0.2.11", customerId: "c1", folderId: "f1", jumpServerId: "s1", isProduction: true, note: "nginx, 배포는 화요일만", lastConnectedAt: now - 7200 }),
       s({ id: "s3", name: "web-02", host: "192.0.2.12", customerId: "c1", folderId: "f1", jumpServerId: "s1", isProduction: true }),
-      s({ id: "s4", name: "dev-api", host: "192.0.2.21", port: 2222, username: "dev", customerId: "c1", folderId: "f2", lastConnectedAt: now - 86400 * 3 }),
+      s({ id: "s4", name: "dev-api", host: "192.0.2.21", port: 2222, username: "dev", customerId: "c1", folderId: "f2", lastConnectedAt: now - 86400 * 3, identityFile: "~/.ssh/customer_a_ed25519" }),
       s({ id: "s5", name: "gw-01", host: "198.51.100.5", customerId: "c2", folderId: "f3", isProduction: true, favorite: true }),
       s({ id: "s6", name: "lab-vm", host: "192.0.2.99", username: "root" }),
+      s({ id: "s7", name: "정산-배치-서버-아주-긴-이름-예시", host: "batch-settlement-01.internal.example.com", username: "deploy", port: 2202, jumpServerId: "s1", note: "매일 02:00 배치, 장애 시 담당자에게 먼저 연락하고 재실행은 하지 마세요", lastConnectedAt: now - 120 }),
     ],
   };
   const hostKeys: HostKey[] = [
     { id: 1, host: "bastion.example.com", keyType: "ssh-ed25519", key: "AAAA...", fingerprint: "SHA256:example0000000000000000000000000000000000", addedAt: now - 86400 },
+    { id: 2, host: "[very-long-internal-gateway-name.region-1.example.com]:2222", keyType: "ecdsa-sha2-nistp256", key: "AAAB...", fingerprint: "SHA256:example3333333333333333333333333333333333", addedAt: now - 600 },
+    { id: 3, host: "198.51.100.5", keyType: "rsa-sha2-512", key: "AAAC...", fingerprint: "SHA256:example4444444444444444444444444444444444", addedAt: now - 86400 * 400 },
   ];
 
   (window as unknown as { isTauri: boolean }).isTauri = true;
-  // ?mock&update 로 열면 새 버전이 있는 것처럼 보여 준다.
-  (window as unknown as { __DHOST_MOCK__: { update: boolean } }).__DHOST_MOCK__ = {
-    update: new URLSearchParams(location.search).has("update"),
-  };
+  // ?mock&update 로 열면 새 버전이 있는 것처럼, ?mock&update=404 / =offline 이면 그 오류를 흉내 낸다.
+  const update = new URLSearchParams(location.search).get("update");
+  (window as unknown as { __DHOST_MOCK__: { update: string | null } }).__DHOST_MOCK__ = { update };
   mockIPC(
     (cmd, args) => {
       const a = (args ?? {}) as Record<string, unknown>;
@@ -68,15 +71,22 @@ export function installDevMock() {
               { host: "bastion.example.com", keyType: "ssh-ed25519", key: "AAAA...", fingerprint: hostKeys[0].fingerprint, alreadyTrusted: true },
               { host: "[192.0.2.21]:2222", keyType: "ssh-ed25519", key: "BBBB...", fingerprint: "SHA256:example1111111111111111111111111111111111", alreadyTrusted: false },
               { host: "198.51.100.5", keyType: "ecdsa-sha2-nistp256", key: "CCCC...", fingerprint: "SHA256:example2222222222222222222222222222222222", alreadyTrusted: false },
+              ...[1, 2, 3, 4, 5].map((n) => ({
+                host: `app-${n}.long-customer-domain-name.example.com`,
+                keyType: "ssh-ed25519",
+                key: `K${n}...`,
+                fingerprint: `SHA256:example${String(n).repeat(43)}`,
+                alreadyTrusted: false,
+              })),
             ],
             hashed: 4,
             skipped: 1,
           };
         case "ssh_config_scan":
           return [
-            { alias: "jump", host: "192.0.2.1", port: 22, user: "ops", proxyJump: null, problem: null },
-            { alias: "app-01", host: "192.0.2.31", port: 22, user: "ops", proxyJump: "jump", problem: null },
-            { alias: "far", host: "192.0.2.41", port: 22, user: "ops", proxyJump: "a,b", problem: "여러 단계 경유는 지원하지 않아 경유 없이 가져옵니다" },
+            { alias: "jump", host: "192.0.2.1", port: 22, user: "ops", proxyJump: null, identityFile: "~/.ssh/customer_a_ed25519", problem: null },
+            { alias: "app-01", host: "192.0.2.31", port: 22, user: "ops", proxyJump: "jump", identityFile: null, problem: null },
+            { alias: "far", host: "192.0.2.41", port: 22, user: "ops", proxyJump: "a,b", identityFile: null, problem: "여러 단계 경유는 지원하지 않아 경유 없이 가져옵니다" },
           ];
         case "server_effective_config":
           return [

@@ -53,6 +53,9 @@ pub struct BackupServer {
     pub favorite: bool,
     #[serde(default)]
     pub note: String,
+    /// 개인키 파일 경로 (키 내용은 넣지 않음). 예전 백업에는 없다.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identity_file: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -132,6 +135,7 @@ pub fn build(db: &Db, include_host_keys: bool) -> AppResult<BackupFile> {
                 is_production: s.is_production,
                 favorite: s.favorite,
                 note: s.note,
+                identity_file: s.identity_file,
             })
             .collect(),
         settings,
@@ -279,6 +283,7 @@ fn validate(data: &BackupFile) -> (HashSet<String>, Vec<String>) {
             host: s.host.clone(),
             port: s.port,
             user: s.username.clone(),
+            identity_file: s.identity_file.clone(),
         })
         .validate()
         {
@@ -419,9 +424,9 @@ pub fn restore(db: &Db, data: &BackupFile, opts: &RestoreOptions) -> AppResult<R
             let folder = s.folder_id.as_ref().and_then(|f| folder_map.get(f)).filter(|_| customer.is_some());
             tx.execute(
                 "INSERT INTO servers (id, name, host, port, username, customer_id, folder_id, jump_server_id,
-                                      is_production, favorite, note, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, ?8, ?9, ?10, ?11, ?11)",
-                params![id, s.name.trim(), s.host, s.port, s.username, customer, folder, s.is_production, s.favorite, s.note, t],
+                                      is_production, favorite, note, created_at, updated_at, identity_file)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, ?8, ?9, ?10, ?11, ?11, ?12)",
+                params![id, s.name.trim(), s.host, s.port, s.username, customer, folder, s.is_production, s.favorite, s.note, t, s.identity_file],
             )?;
             r.servers += 1;
             server_map.insert(s.id.clone(), id);
@@ -510,6 +515,7 @@ mod tests {
             is_production: name.starts_with("prod"),
             favorite: false,
             note: String::new(),
+            identity_file: None,
         }
     }
 
@@ -519,6 +525,7 @@ mod tests {
         let b = profiles::create_server(db, &server("bastion", "192.0.2.1", Some(&c.id), None)).unwrap();
         let mut p = server("prod-web", "192.0.2.10", Some(&c.id), Some(&b.id));
         p.folder_id = Some(f.id);
+        p.identity_file = Some("~/.ssh/customer_a".into());
         profiles::create_server(db, &p).unwrap();
         crate::settings::set(db, "theme", "dark").unwrap();
         db.with(|c| {
@@ -558,6 +565,8 @@ mod tests {
         let web = cat.servers.iter().find(|s| s.name == "prod-web").unwrap();
         assert_eq!(web.jump_server_id.as_deref(), Some(bastion.id.as_str()));
         assert!(web.folder_id.is_some() && web.is_production);
+        // 개인키는 경로만 오간다
+        assert_eq!(web.identity_file.as_deref(), Some("~/.ssh/customer_a"));
         // 복원은 접속 기록을 만들지 않는다 (자동 접속 없음)
         assert!(cat.servers.iter().all(|s| s.last_connected_at.is_none()));
 
@@ -617,6 +626,7 @@ mod tests {
             is_production: false,
             favorite: false,
             note: String::new(),
+            identity_file: None,
         });
         let web_id = data.servers.iter().find(|s| s.name == "prod-web").unwrap().id.clone();
         data.servers.push(BackupServer {
@@ -631,6 +641,7 @@ mod tests {
             is_production: false,
             favorite: false,
             note: String::new(),
+            identity_file: None,
         });
         data.host_keys[0].fingerprint = "SHA256:forged".into();
         data.settings.insert("password".into(), "x".into());

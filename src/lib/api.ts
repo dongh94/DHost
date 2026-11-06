@@ -129,6 +129,8 @@ export interface Server {
   favorite: boolean;
   note: string;
   lastConnectedAt: number | null;
+  /** 개인키 파일 경로 (선택). 키 내용은 저장하지 않는다. */
+  identityFile: string | null;
 }
 
 export type ServerInput = Omit<Server, "id" | "lastConnectedAt">;
@@ -168,6 +170,8 @@ export interface ConfigCandidate {
   port: number;
   user: string;
   proxyJump: string | null;
+  /** config에 직접 적은 IdentityFile */
+  identityFile: string | null;
   problem: string | null;
 }
 

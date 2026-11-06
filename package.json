@@ -8,6 +8,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
+    "app": "DHOST_DEV_PORT=1421 tauri dev --config '{\"build\":{\"devUrl\":\"http://localhost:1421\"}}'",
     "test": "vitest run",
     "check:secrets": "scripts/check-secrets.sh"
   },

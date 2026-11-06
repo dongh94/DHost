@@ -18,7 +18,26 @@ const empty: ServerInput = {
   isProduction: false,
   favorite: false,
   note: "",
+  identityFile: null,
 };
+
+/** 서버와 같은 규칙: 절대 경로나 ~/로 시작, ssh가 치환하는 % $ 와 따옴표·역슬래시 제외 */
+function identityProblem(path: string): string | null {
+  if (!path) return null;
+  if (!path.startsWith("/") && !path.startsWith("~/")) return "절대 경로(/…)나 ~/로 시작해야 합니다.";
+  if (/[%$"\\]/.test(path)) return "% $ \" \\ 는 쓸 수 없습니다.";
+  return null;
+}
+
+/** 파일 선택 창으로 키를 고른다. 홈 폴더 안이면 ~/ 형태로 바꿔 다른 Mac에서도 쓰기 좋게 한다. */
+async function pickKeyFile(): Promise<string | null> {
+  const { open } = await import("@tauri-apps/plugin-dialog");
+  const { homeDir, join } = await import("@tauri-apps/api/path");
+  const home = (await homeDir()).replace(/\/$/, "");
+  const picked = await open({ multiple: false, directory: false, defaultPath: await join(home, ".ssh") });
+  if (!picked || Array.isArray(picked)) return null;
+  return picked.startsWith(home + "/") ? "~" + picked.slice(home.length) : picked;
+}
 
 /** 서버 등록·수정 (FUN-01) */
 export function ServerDialog({
@@ -32,6 +51,7 @@ export function ServerDialog({
 }) {
   const { customers, folders, servers, reload } = useCatalog();
   const [v, setV] = useState<ServerInput>(() => (server ? { ...server } : { ...empty, ...defaults }));
+  const keyProblem = identityProblem((v.identityFile ?? "").trim());
   const [port, setPort] = useState(String(v.port));
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState<"customer" | "folder" | null>(null);
@@ -55,7 +75,7 @@ export function ServerDialog({
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    const input = { ...v, port: Number(port) };
+    const input = { ...v, port: Number(port), identityFile: v.identityFile?.trim() || null };
     try {
       if (server) await api.serverUpdate(server.id, input);
       else await api.serverCreate(input);
@@ -150,6 +170,38 @@ export function ServerDialog({
             </Select>
           </Field>
 
+          <Field
+            label="개인키 파일 (선택)"
+            hint={
+              keyProblem ??
+              "비워 두면 SSH Agent와 기본 키(~/.ssh/id_ed25519 등)를 씁니다. 키 내용은 저장하지 않고 경로만 저장하며, 키에 암호가 있으면 접속할 때 묻습니다."
+            }
+          >
+            <div className="flex gap-2">
+              <Input
+                value={v.identityFile ?? ""}
+                onChange={(e) => set("identityFile", e.target.value || null)}
+                placeholder="~/.ssh/customer_a_ed25519"
+                spellCheck={false}
+                className={`font-mono ${keyProblem ? "border-red-500" : ""}`}
+              />
+              <Button
+                type="button"
+                className="shrink-0 whitespace-nowrap"
+                onClick={async () => {
+                  try {
+                    const p = await pickKeyFile();
+                    if (p) set("identityFile", p);
+                  } catch (err) {
+                    setError(String(err));
+                  }
+                }}
+              >
+                찾아보기
+              </Button>
+            </div>
+          </Field>
+
           <label className="flex items-start gap-2 rounded-md border border-line p-3">
             <input
               type="checkbox"
@@ -208,7 +260,7 @@ export function ServerDialog({
           <Button type="button" onClick={onClose}>
             취소
           </Button>
-          <Button type="submit" form="server-form" variant="primary">
+          <Button type="submit" form="server-form" variant="primary" disabled={!!keyProblem}>
             저장
           </Button>
         </div>

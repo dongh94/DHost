@@ -38,6 +38,8 @@ pub struct Server {
     pub favorite: bool,
     pub note: String,
     pub last_connected_at: Option<i64>,
+    /// 개인키 파일 경로 (선택)
+    pub identity_file: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -53,6 +55,9 @@ pub struct ServerInput {
     pub is_production: bool,
     pub favorite: bool,
     pub note: String,
+    /// 개인키 파일 경로 (선택). 비우면 SSH Agent와 기본 키(~/.ssh/id_*)를 쓴다.
+    #[serde(default)]
+    pub identity_file: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -64,7 +69,7 @@ pub struct Catalog {
 }
 
 const SERVER_COLUMNS: &str = "id, name, host, port, username, customer_id, folder_id, jump_server_id, \
-                              is_production, favorite, note, last_connected_at";
+                              is_production, favorite, note, last_connected_at, identity_file";
 
 fn server_row(r: &rusqlite::Row) -> rusqlite::Result<Server> {
     Ok(Server {
@@ -80,6 +85,7 @@ fn server_row(r: &rusqlite::Row) -> rusqlite::Result<Server> {
         favorite: r.get(9)?,
         note: r.get(10)?,
         last_connected_at: r.get(11)?,
+        identity_file: r.get(12)?,
     })
 }
 
@@ -196,10 +202,12 @@ fn validate(c: &rusqlite::Connection, input: &ServerInput, self_id: Option<&str>
     if v.note.chars().count() > 2000 {
         return Err(AppError::InvalidInput("메모는 2000자 이하여야 합니다".into()));
     }
+    v.identity_file = v.identity_file.map(|p| p.trim().to_string()).filter(|p| !p.is_empty());
     Endpoint {
         host: v.host.clone(),
         port: v.port,
         user: v.username.clone(),
+        identity_file: v.identity_file.clone(),
     }
     .validate()?;
 
@@ -253,8 +261,8 @@ pub fn create_server(db: &Db, input: &ServerInput) -> AppResult<Server> {
         let t = now();
         c.execute(
             "INSERT INTO servers (id, name, host, port, username, customer_id, folder_id, jump_server_id,
-                                  is_production, favorite, note, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?12)",
+                                  is_production, favorite, note, created_at, updated_at, identity_file)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?12, ?13)",
             params![
                 id,
                 v.name,
@@ -267,7 +275,8 @@ pub fn create_server(db: &Db, input: &ServerInput) -> AppResult<Server> {
                 v.is_production,
                 v.favorite,
                 v.note,
-                t
+                t,
+                v.identity_file
             ],
         )?;
         Ok(get_server(c, &id)?.expect("방금 저장한 서버"))
@@ -280,7 +289,8 @@ pub fn update_server(db: &Db, id: &str, input: &ServerInput) -> AppResult<Server
         let v = validate(c, input, Some(id))?;
         c.execute(
             "UPDATE servers SET name = ?2, host = ?3, port = ?4, username = ?5, customer_id = ?6, folder_id = ?7,
-                    jump_server_id = ?8, is_production = ?9, favorite = ?10, note = ?11, updated_at = ?12
+                    jump_server_id = ?8, is_production = ?9, favorite = ?10, note = ?11, updated_at = ?12,
+                    identity_file = ?13
              WHERE id = ?1",
             params![
                 id,
@@ -294,7 +304,8 @@ pub fn update_server(db: &Db, id: &str, input: &ServerInput) -> AppResult<Server
                 v.is_production,
                 v.favorite,
                 v.note,
-                now()
+                now(),
+                v.identity_file
             ],
         )?;
         Ok(get_server(c, id)?.expect("방금 수정한 서버"))
@@ -344,11 +355,13 @@ pub fn plan(db: &Db, id: &str, touch: bool) -> AppResult<(ConnectRequest, Sessio
                 host: s.host,
                 port: s.port,
                 user: s.username,
+                identity_file: s.identity_file,
             },
             jump: jump.map(|j| Endpoint {
                 host: j.host,
                 port: j.port,
                 user: j.username,
+                identity_file: j.identity_file,
             }),
             connect_timeout: None,
         };
@@ -433,6 +446,7 @@ pub fn import_config(
             is_production: false,
             favorite: false,
             note: "~/.ssh/config에서 가져옴".into(),
+            identity_file: item.identity_file.clone(),
         };
         match create_server(db, &input) {
             Ok(s) => {
@@ -466,6 +480,7 @@ mod tests {
             is_production: false,
             favorite: false,
             note: String::new(),
+            identity_file: None,
         }
     }
 
@@ -552,6 +567,7 @@ mod tests {
             port: 22,
             user: "ops".into(),
             proxy_jump: pj.map(Into::into),
+            identity_file: (alias == "web").then(|| "~/.ssh/customer_web".to_string()),
             problem: None,
         };
         // 경유 대상이 목록에서 뒤에 와도 연결된다
@@ -568,10 +584,32 @@ mod tests {
         let bastion = cat.servers.iter().find(|s| s.name == "bastion").unwrap();
         let web = cat.servers.iter().find(|s| s.name == "web").unwrap();
         assert_eq!(web.jump_server_id.as_deref(), Some(bastion.id.as_str()));
+        // config의 IdentityFile 경로도 함께 가져와 접속 계획에 들어간다
+        assert_eq!(web.identity_file.as_deref(), Some("~/.ssh/customer_web"));
+        assert_eq!(bastion.identity_file, None);
+        let (req, _) = plan(&db, &web.id, false).unwrap();
+        assert_eq!(req.target.identity_file.as_deref(), Some("~/.ssh/customer_web"));
         // 다시 가져오면 중복으로 건너뛴다
         let again = import_config(&db, &items, None).unwrap();
         assert_eq!(again.created, 0);
         assert_eq!(again.skipped.len(), 4);
+    }
+
+    #[test]
+    fn identity_file_is_trimmed_and_validated() {
+        let db = db();
+        let mut i = input("keyed");
+        i.identity_file = Some("  ~/.ssh/k  ".into());
+        let s = create_server(&db, &i).unwrap();
+        assert_eq!(s.identity_file.as_deref(), Some("~/.ssh/k"));
+        // 비우면 지정 안 함
+        i.identity_file = Some("   ".into());
+        assert_eq!(update_server(&db, &s.id, &i).unwrap().identity_file, None);
+        // 상대 경로·토큰 문자는 거부
+        for bad in ["id_rsa", "~/k%r"] {
+            i.identity_file = Some(bad.into());
+            assert!(update_server(&db, &s.id, &i).is_err(), "{bad}");
+        }
     }
 
     #[test]

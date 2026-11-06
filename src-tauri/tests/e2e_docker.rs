@@ -217,7 +217,7 @@ impl Drop for Harness {
 }
 
 fn temp_store(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("dhost-e2e-{}-{name}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("dhost-e2e-{}-store-{name}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     dir.join("dhost.db")
 }
@@ -227,6 +227,7 @@ fn bastion() -> Endpoint {
         host: "127.0.0.1".into(),
         port: 2222,
         user: "dhost".into(),
+        identity_file: None,
     }
 }
 
@@ -320,6 +321,7 @@ fn jump_host_verifies_both_hops() {
             host: "target".into(),
             port: 22,
             user: "dhost".into(),
+            identity_file: None,
         },
         jump: Some(bastion()),
         connect_timeout: None,
@@ -524,6 +526,7 @@ fn ep(host: &str, port: u16) -> Endpoint {
         host: host.into(),
         port,
         user: "dhost".into(),
+        identity_file: None,
     }
 }
 
@@ -934,4 +937,88 @@ fn repeated_connect_close_leaks_nothing() {
         fds_after <= fds_before + 4,
         "파일 핸들이 늘었다: {fds_before} → {fds_after}"
     );
+}
+
+/// 테스트 서버(bastion)의 authorized_keys에 공개키를 넣거나 뺀다. 주석 "dhost-e2e"로 표시한 키만 다룬다.
+fn bastion_keys(script: &str, input: Option<&str>) {
+    use std::process::{Command, Stdio};
+    let compose = concat!(env!("CARGO_MANIFEST_DIR"), "/../dev/test-env/docker-compose.yml");
+    let mut c = Command::new("docker")
+        .args(["compose", "-f", compose, "exec", "-T", "bastion", "sh", "-c", script])
+        .stdin(Stdio::piped())
+        .spawn()
+        .unwrap();
+    if let Some(i) = input {
+        use std::io::Write;
+        c.stdin.take().unwrap().write_all(i.as_bytes()).unwrap();
+    }
+    drop(c.stdin.take());
+    assert!(c.wait().unwrap().success(), "docker exec 실패: {script}");
+}
+
+/// TEST-07: 서버에 지정한 개인키 파일(암호 있음)로 인증한다. 키 암호는 비밀번호와 같은 입력 창으로 묻고,
+/// 저장된 비밀번호를 키 암호 자리에 자동으로 넣지 않는다.
+#[test]
+#[ignore]
+fn identity_file_with_passphrase() {
+    use std::process::Command;
+    let dir = std::env::temp_dir().join(format!("dhost-e2e-{}-idkey", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let key = dir.join("customer key"); // 공백이 있는 경로
+    // 키 암호는 테스트 정책이 답하는 값과 같게 둔다 (가상 값)
+    assert!(
+        Command::new("ssh-keygen")
+            .args(["-q", "-t", "ed25519", "-N", TEST_PASSWORD, "-C", "dhost-e2e", "-f"])
+            .arg(&key)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let pubkey = std::fs::read_to_string(dir.join("customer key.pub")).unwrap();
+    bastion_keys(
+        "mkdir -p /home/dhost/.ssh && cat >> /home/dhost/.ssh/authorized_keys && chown -R dhost /home/dhost/.ssh && chmod 700 /home/dhost/.ssh && chmod 600 /home/dhost/.ssh/authorized_keys",
+        Some(&pubkey),
+    );
+
+    let h = Harness::new(temp_store("keyfile"), HostKeyPolicy::Trust);
+    // 이 서버 프로필에 (틀린) 비밀번호가 저장돼 있어도 키 암호 자리에 쓰지 않아야 한다.
+    h.secrets.set("srv-bastion", "not-the-passphrase").unwrap();
+    let mut req = direct();
+    req.target.identity_file = Some(key.to_string_lossy().into_owned());
+    let (out, code) = h.run_as(req, profile_label(), Some("echo KEYFILE-OK-$((40+2)); exit"));
+    let prompts: Vec<String> = askpass_prompts(&h).into_iter().map(|p| p.prompt).collect();
+
+    // 없는 키 파일이면 접속을 시작하지 않고 바로 알린다.
+    let mut missing = direct();
+    missing.target.identity_file = Some("~/.ssh/dhost-e2e-no-such-key".into());
+    let err = h
+        .sessions
+        .open(
+            &OpenSshEngine::new(),
+            h.broker.clone(),
+            missing,
+            SessionLabel::default(),
+            (80, 24),
+            Box::new(|_| true),
+        )
+        .unwrap_err()
+        .to_string();
+
+    bastion_keys("sed -i '/dhost-e2e/d' /home/dhost/.ssh/authorized_keys", None);
+    let _ = std::fs::remove_dir_all(&dir);
+
+    assert_eq!(code, Some(0), "출력: {out:?}");
+    assert!(out.contains("KEYFILE-OK-42"), "출력: {out:?}");
+    assert_eq!(prompts.len(), 1, "키 암호만 한 번 물어야 한다: {prompts:?}");
+    assert!(
+        prompts[0].contains("passphrase") && prompts[0].contains("customer key"),
+        "{prompts:?}"
+    );
+    assert_eq!(
+        h.secrets.get("srv-bastion").as_deref(),
+        Some("not-the-passphrase"),
+        "저장된 비밀번호는 그대로"
+    );
+    assert!(err.contains("개인키 파일을 찾을 수 없습니다"), "{err}");
 }

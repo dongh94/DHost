@@ -159,6 +159,10 @@ fn build_args(req: &ConnectRequest, ctx: &HelperContext) -> AppResult<Vec<String
             if let Some(t) = timeout {
                 inner.extend(["-o".into(), format!("ConnectTimeout={t}")]);
             }
+            // 경유 서버에 지정한 키는 경유용 ssh에만 준다.
+            for a in identity_args(jump) {
+                inner.push(sh_quote(&a));
+            }
             inner.extend([
                 "-o".into(),
                 "ProxyJump=none".into(),
@@ -175,6 +179,7 @@ fn build_args(req: &ConnectRequest, ctx: &HelperContext) -> AppResult<Vec<String
         }
     }
 
+    args.extend(identity_args(&req.target));
     args.extend([
         "-p".into(),
         req.target.port.to_string(),
@@ -184,6 +189,20 @@ fn build_args(req: &ConnectRequest, ctx: &HelperContext) -> AppResult<Vec<String
         req.target.host.clone(),
     ]);
     Ok(args)
+}
+
+/// 구간에 개인키를 지정했으면 그 키만 쓴다 (IdentitiesOnly). Agent에 키가 많아 서버 시도 횟수를 넘기는 것도 막는다.
+/// 비밀번호 인증은 그대로 남는다.
+fn identity_args(ep: &crate::ssh::Endpoint) -> Vec<String> {
+    match &ep.identity_file {
+        Some(path) => vec![
+            "-i".into(),
+            crate::ssh::expand_home(path).to_string_lossy().into_owned(),
+            "-o".into(),
+            "IdentitiesOnly=yes".into(),
+        ],
+        None => vec![],
+    }
 }
 
 fn sh_quote(s: &str) -> String {
@@ -235,6 +254,7 @@ mod tests {
                 host: "192.0.2.10".into(),
                 port: 2222,
                 user: "dhost".into(),
+                identity_file: None,
             },
             jump: None,
             connect_timeout: Some(15),
@@ -260,11 +280,13 @@ mod tests {
                 host: "target".into(),
                 port: 22,
                 user: "dhost".into(),
+                identity_file: None,
             },
             jump: Some(Endpoint {
                 host: "bastion.example.com".into(),
                 port: 2222,
                 user: "ops".into(),
+                identity_file: None,
             }),
             connect_timeout: Some(10),
         };
@@ -276,5 +298,38 @@ mod tests {
         assert!(pc.contains("-o ConnectTimeout=10"));
         // 바깥 ssh에는 ProxyJump=none을 넣지 않는다 (ProxyCommand와 함께 쓰지 않음)
         assert!(!args.contains(&"ProxyJump=none".to_string()));
+        assert!(!pc.contains("-i ") && !args.contains(&"-i".to_string()));
+    }
+
+    #[test]
+    fn identity_file_goes_to_its_own_hop() {
+        let home = dirs::home_dir().unwrap().to_string_lossy().into_owned();
+        let req = ConnectRequest {
+            target: Endpoint {
+                host: "target".into(),
+                port: 22,
+                user: "dhost".into(),
+                identity_file: Some("~/.ssh/target key".into()),
+            },
+            jump: Some(Endpoint {
+                host: "bastion.example.com".into(),
+                port: 22,
+                user: "ops".into(),
+                identity_file: Some("/opt/keys/it's.pem".into()),
+            }),
+            connect_timeout: None,
+        };
+        let args = build_args(&req, &ctx()).unwrap();
+        // 대상 서버 키: 바깥 ssh 인자로 (~는 홈 폴더로 풀고, 공백은 인자 하나로)
+        let i = args.iter().position(|a| a == "-i").unwrap();
+        assert_eq!(args[i + 1], format!("{home}/.ssh/target key"));
+        assert_eq!(args[i + 3], "IdentitiesOnly=yes");
+        // 경유 서버 키: ProxyCommand 안에서 따옴표로 감싼다
+        let pc = args.iter().find(|a| a.starts_with("ProxyCommand=")).unwrap();
+        assert!(
+            pc.contains(r"'-i' '/opt/keys/it'\''s.pem' '-o' 'IdentitiesOnly=yes'"),
+            "{pc}"
+        );
+        assert!(!pc.contains("target key"));
     }
 }

@@ -71,7 +71,15 @@ export function UpdateDialog() {
             </div>
           </div>
         )}
-        {status === "error" && error && <p className="break-all text-xs text-red-600">업데이트하지 못했습니다: {error}</p>}
+        {status === "error" && error && (
+          <div className="rounded-md bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-950 dark:text-red-300">
+            <p className="font-medium">업데이트하지 못했습니다. {error.message}</p>
+            <details className="mt-1">
+              <summary className="cursor-pointer text-red-600/80">자세한 오류 (관리자에게 전달)</summary>
+              <code className="mt-1 block break-all font-mono select-text">{error.detail}</code>
+            </details>
+          </div>
+        )}
         <p className="text-xs text-fg-muted">서버 목록, 설정, 저장한 비밀번호는 그대로 유지됩니다.</p>
       </div>
     </Modal>

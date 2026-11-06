@@ -28,6 +28,9 @@ pub struct Endpoint {
     pub host: String,
     pub port: u16,
     pub user: String,
+    /// 이 구간에 쓸 개인키 파일 경로 (선택). 키 내용은 저장하지 않고 경로만 넘긴다.
+    #[serde(default)]
+    pub identity_file: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -104,7 +107,46 @@ impl Endpoint {
         if self.port == 0 {
             return Err(AppError::InvalidInput("포트가 올바르지 않습니다".into()));
         }
+        if let Some(path) = &self.identity_file {
+            validate_identity_path(path)?;
+        }
         Ok(())
+    }
+
+    /// 접속 직전에 개인키 파일이 실제로 있는지 확인한다. 없으면 ssh가 경고만 하고 비밀번호로 넘어가므로 먼저 알린다.
+    pub fn check_identity_exists(&self) -> AppResult<()> {
+        if let Some(path) = &self.identity_file
+            && !expand_home(path).is_file()
+        {
+            return Err(AppError::InvalidInput(format!(
+                "개인키 파일을 찾을 수 없습니다: {path}"
+            )));
+        }
+        Ok(())
+    }
+}
+
+/// 개인키 경로 규칙: 절대 경로 또는 `~/`로 시작. ssh가 `%`·`$`를 토큰으로 치환하므로 쓰지 않는다.
+pub fn validate_identity_path(path: &str) -> AppResult<()> {
+    let ok = !path.is_empty()
+        && path.len() <= 1024
+        && (path.starts_with('/') || path.starts_with("~/"))
+        && !path
+            .chars()
+            .any(|c| c.is_control() || matches!(c, '%' | '$' | '"' | '\\'));
+    if !ok {
+        return Err(AppError::InvalidInput(format!(
+            "개인키 파일 경로가 올바르지 않습니다 (절대 경로나 ~/로 시작, % $ \" \\ 제외): {path}"
+        )));
+    }
+    Ok(())
+}
+
+/// `~/`를 홈 폴더로 바꾼다.
+pub fn expand_home(path: &str) -> std::path::PathBuf {
+    match (path.strip_prefix("~/"), dirs::home_dir()) {
+        (Some(rest), Some(home)) => home.join(rest),
+        _ => std::path::PathBuf::from(path),
     }
 }
 
@@ -117,6 +159,7 @@ mod tests {
             host: host.into(),
             port: 22,
             user: user.into(),
+            identity_file: None,
         }
     }
 
@@ -129,5 +172,18 @@ mod tests {
         assert!(ep("host", "a'b").validate().is_err());
         assert!(ep("host", "$(id)").validate().is_err());
         assert!(ep("", "dhost").validate().is_err());
+    }
+
+    #[test]
+    fn identity_path_rules() {
+        let with = |p: &str| Endpoint {
+            identity_file: Some(p.into()),
+            ..ep("example.com", "dhost")
+        };
+        assert!(with("~/.ssh/customer_a").validate().is_ok());
+        assert!(with("/Users/me/keys/my key.pem").validate().is_ok());
+        for bad in ["", "id_rsa", "./k", "~/k%h", "~/$HOME/k", "~/a\nb", "~/a\"b"] {
+            assert!(with(bad).validate().is_err(), "{bad:?}");
+        }
     }
 }

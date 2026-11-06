@@ -17,7 +17,7 @@ cd src-tauri && cargo test                  # Rust 단위 테스트
 docker compose -f ../dev/test-env/docker-compose.yml up -d --build
 cargo test --test e2e_docker -- --ignored --test-threads=1   # 실제 ssh E2E
 ```
-결과: vitest 20개, Rust 단위 27개, E2E 15개 모두 통과.
+결과: vitest 25개, Rust 단위 31개, E2E 16개 모두 통과 (v0.2.0 작업 기준).
 
 ## 판정 기준
 - ✅ **자동**: 테스트 코드로 확인. 이름을 적어 둔다.
@@ -63,9 +63,8 @@ cargo test --test e2e_docker -- --ignored --test-threads=1   # 실제 ssh E2E
 | 저장된 비밀번호가 틀림 → 지우고 다시 물음 | ✅ | `wrong_saved_password_is_removed_and_reprompted` |
 | 인증 창 취소 → 다시 묻지 않고 종료 | ✅ | `cancel_password_stops_without_reprompt` |
 | SSH Agent의 키 (비밀번호 없이) | ✅ | `agent_key_auth_without_password`: 테스트용 키를 만들어 Agent에 넣고, 비밀번호 질문은 취소하게 해 두어도 접속된다 |
-| 개인키 파일 / 키 암호(passphrase) / 키보드 대화형 | ⚠️ 별도 테스트 없음 | 모두 같은 askpass 경로로 입력을 받는다. 키 파일은 `~/.ssh/config`의 `IdentityFile`과 기본 키(`~/.ssh/id_*`)를 쓴다 |
-
-**제한:** 서버마다 개인키 파일을 골라 지정하는 화면은 아직 없다. 지금은 `~/.ssh/config`에 적어 두면 그 설정을 따른다.
+| 서버에 지정한 개인키 파일 + 키 암호 | ✅ | `identity_file_with_passphrase`: 공백이 있는 경로의 암호 걸린 키로 접속. 키 암호만 한 번 묻고, 저장된 서버 비밀번호를 키 암호 자리에 넣지 않는다. 없는 키 파일이면 접속 전에 알린다 |
+| 키보드 대화형 | ⚠️ 별도 테스트 없음 | 비밀번호와 같은 askpass 경로로 입력을 받는다 |
 
 ### TEST-11 저장 데이터 검사
 - 설정 저장·검증: `settings::tests::set_get_reset`. 허용하지 않은 키(예: `password`)는 저장을 거부한다.

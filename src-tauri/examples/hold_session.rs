@@ -55,6 +55,7 @@ fn main() {
             host: "127.0.0.1".into(),
             port: 2222,
             user: "dhost".into(),
+            identity_file: None,
         },
         jump: None,
         connect_timeout: None,

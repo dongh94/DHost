@@ -142,8 +142,43 @@ pub struct ConfigCandidate {
     pub user: String,
     /// "none"이 아니면 원래 값 그대로 (예: "bastion", "a,b")
     pub proxy_jump: Option<String>,
+    /// config에 직접 적은 IdentityFile (ssh 기본 키 경로는 빼고 첫 번째)
+    #[serde(default)]
+    pub identity_file: Option<String>,
     /// 가져올 수 없는 이유 (주소 형식이 맞지 않음 등)
     pub problem: Option<String>,
+}
+
+/// ssh가 IdentityFile을 따로 적지 않아도 시도하는 기본 키. `ssh -G`는 이것도 함께 보여 주므로 걸러 낸다.
+const DEFAULT_IDENTITIES: &[&str] = &[
+    "~/.ssh/id_rsa",
+    "~/.ssh/id_ecdsa",
+    "~/.ssh/id_ecdsa_sk",
+    "~/.ssh/id_ed25519",
+    "~/.ssh/id_ed25519_sk",
+    "~/.ssh/id_xmss",
+    "~/.ssh/id_dsa",
+];
+
+/// `ssh -G` 결과에서 사용자가 직접 지정한 개인키를 고른다. 경로 규칙에 맞지 않으면 버린다.
+pub fn explicit_identity(kv: &[(String, String)]) -> Option<String> {
+    let home = dirs::home_dir().map(|h| h.to_string_lossy().into_owned());
+    kv.iter()
+        .filter(|(k, _)| k == "identityfile")
+        .map(|(_, v)| tilde_home(v.trim(), home.as_deref()))
+        .find(|v| !DEFAULT_IDENTITIES.contains(&v.as_str()))
+        .filter(|v| crate::ssh::validate_identity_path(v).is_ok())
+}
+
+/// 홈 폴더 안의 절대 경로를 `~/...`로 바꾼다 (기본 키와 비교하고, 다른 Mac에서도 쓰기 좋게).
+fn tilde_home(path: &str, home: Option<&str>) -> String {
+    match home
+        .and_then(|h| path.strip_prefix(h))
+        .filter(|rest| rest.starts_with('/'))
+    {
+        Some(rest) => format!("~{rest}"),
+        None => path.to_string(),
+    }
 }
 
 pub fn scan_config() -> AppResult<Vec<ConfigCandidate>> {
@@ -169,10 +204,12 @@ pub fn scan_config() -> AppResult<Vec<ConfigCandidate>> {
         let user = get("user").unwrap_or_default();
         let port = get("port").and_then(|p| p.parse().ok()).unwrap_or(22);
         let proxy_jump = get("proxyjump").filter(|v| v != "none");
+        let identity_file = explicit_identity(&kv);
         let problem = Endpoint {
             host: host.clone(),
             port,
             user: user.clone(),
+            identity_file: None,
         }
         .validate()
         .err()
@@ -189,6 +226,7 @@ pub fn scan_config() -> AppResult<Vec<ConfigCandidate>> {
             port,
             user,
             proxy_jump,
+            identity_file,
             problem,
         });
     }
@@ -208,6 +246,29 @@ pub fn proxy_jump_host(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn explicit_identity_skips_defaults() {
+        let kv = |v: &[&str]| {
+            v.iter()
+                .map(|x| ("identityfile".to_string(), x.to_string()))
+                .collect::<Vec<_>>()
+        };
+        // IdentityFile을 적지 않으면 ssh -G는 기본 키만 보여 준다
+        assert_eq!(explicit_identity(&kv(&["~/.ssh/id_rsa", "~/.ssh/id_ed25519"])), None);
+        assert_eq!(
+            explicit_identity(&kv(&["~/.ssh/customer_a", "~/.ssh/id_rsa"])).as_deref(),
+            Some("~/.ssh/customer_a")
+        );
+        assert_eq!(
+            explicit_identity(&kv(&["/opt/keys/a.pem"])).as_deref(),
+            Some("/opt/keys/a.pem")
+        );
+        // 경로 규칙에 맞지 않으면 버린다 (%토큰)
+        assert_eq!(explicit_identity(&kv(&["~/.ssh/%h.key"])), None);
+        assert_eq!(tilde_home("/Users/me/.ssh/a", Some("/Users/me")), "~/.ssh/a");
+        assert_eq!(tilde_home("/Users/meow/a", Some("/Users/me")), "/Users/meow/a");
+    }
 
     // 테스트용 가상 키 (ssh-keygen으로 만든 공개키, 실서버 키 아님)
     const KEY: &str = "AAAAC3NzaC1lZDI1NTE5AAAAIAXI1qT+YeFMxiSH8lNimKhEhupnrWMYnHea6ZXemlk/";

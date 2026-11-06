@@ -5,9 +5,11 @@ import {
   ChevronRight,
   FolderClosed,
   FileDown,
+  FileUp,
   FileCode2,
   Archive,
   FolderPlus,
+  KeyRound,
   Pencil,
   Play,
   Plus,
@@ -21,8 +23,8 @@ import { connectServer } from "../lib/connect";
 import { useCatalog } from "../stores/catalog";
 import { useSessions } from "../stores/sessions";
 import { useUi } from "../stores/ui";
-import { Badge, Button, DropdownButton, IconButton, Modal, PageHeader } from "../components/ui";
-import { pickBackup, RestoreDialog } from "../components/BackupSection";
+import { Badge, Button, DropdownButton, HoverLabel, IconButton, Modal, PageHeader } from "../components/ui";
+import { ExportDialog, pickBackup, RestoreDialog } from "../components/BackupSection";
 import { ServerDialog } from "../components/ServerDialog";
 import { QuickConnectDialog } from "../components/QuickConnectDialog";
 import { ConfirmDialog, NameDialog } from "../components/dialogs";
@@ -34,6 +36,7 @@ type Dialog =
   | { kind: "server"; server?: Server; customerId?: string | null; folderId?: string | null }
   | { kind: "quick" }
   | { kind: "importConfig" }
+  | { kind: "export" }
   | { kind: "restore"; path: string; preview: BackupPreview }
   | { kind: "error"; message: string }
   | { kind: "deleteServer"; server: Server }
@@ -41,6 +44,9 @@ type Dialog =
   | { kind: "deleteCustomer"; id: string; name: string }
   | { kind: "folder"; customerId: string; id?: string; name?: string }
   | { kind: "deleteFolder"; id: string; name: string };
+
+/** 버튼 글자가 보이는 넓은 폭에서는 말풍선을 띄우지 않는다 (아이콘만 남았을 때만) */
+const tipWhenCompact = "@min-[851px]:hidden";
 
 const rtf = new Intl.RelativeTimeFormat("ko", { numeric: "auto" });
 function ago(ts: number | null) {
@@ -145,7 +151,7 @@ export function ServersPage() {
           s.id === selectedId ? "bg-brand-50 dark:bg-brand-950" : "hover:bg-canvas"
         }`}
       >
-        <td className="w-8 py-2 pl-3">
+        <td className="w-10 min-w-10 py-2 pl-3">
           <IconButton
             label={s.favorite ? "즐겨찾기 해제" : "즐겨찾기"}
             onClick={async () => {
@@ -156,32 +162,63 @@ export function ServersPage() {
             <Star className={`h-4 w-4 ${s.favorite ? "fill-amber-400 text-amber-400" : ""}`} />
           </IconButton>
         </td>
-        <td className="py-2" style={{ paddingLeft: depth * 20 }}>
-          <div className="flex items-center gap-2">
+        {/* 이름 열이 남는 폭을 모두 쓰고, 넘치면 말줄임표로 자른다 (w-full + max-w-0) */}
+        <td className="w-full max-w-0 py-2" style={{ paddingLeft: depth * 20 }}>
+          <div className="flex min-w-0 items-center gap-2">
             <span
               title={connectedIds.has(s.id) ? "연결된 세션 있음" : "연결 안 됨"}
               className={`h-2 w-2 shrink-0 rounded-full ${connectedIds.has(s.id) ? "bg-emerald-500" : "bg-zinc-300 dark:bg-zinc-600"}`}
             />
-            <span className="font-medium text-fg">{s.name}</span>
+            <span className="truncate font-medium text-fg" title={`${s.name} · 최근 접속 ${ago(s.lastConnectedAt)}`}>
+              {s.name}
+            </span>
             {s.isProduction && <Badge tone="danger">운영</Badge>}
           </div>
-          {s.note && <div className="ml-4 mt-0.5 max-w-md truncate text-xs text-fg-subtle">{s.note}</div>}
+          {s.note && (
+            <div className="ml-4 mt-0.5 truncate text-xs text-fg-subtle" title={s.note}>
+              {s.note}
+            </div>
+          )}
         </td>
-        <td className="py-2 font-mono text-xs text-fg-muted">
-          {s.username}@{s.host}:{s.port}
+        <td className="py-2 pl-3 font-mono text-xs text-fg-muted">
+          <span className="flex items-center gap-1">
+            <span
+              className="block max-w-[18rem] truncate @max-3xl:max-w-[13rem]"
+              title={`${s.username}@${s.host}:${s.port}`}
+            >
+              {s.username}@{s.host}:{s.port}
+            </span>
+            {s.identityFile && (
+              <span title={`개인키: ${s.identityFile}`} className="shrink-0 text-fg-subtle">
+                <KeyRound className="h-3.5 w-3.5" />
+              </span>
+            )}
+            {/* 좁은 폭: 경유 열 대신 주소 옆에 짧게 (한 줄 유지) */}
+            {jump && (
+              <span
+                className="flex min-w-0 items-center gap-0.5 font-sans text-fg-subtle @3xl:hidden"
+                title={`${jump.name} 경유`}
+              >
+                <Route className="h-3.5 w-3.5 shrink-0" />
+                <span className="block max-w-[6rem] truncate">{jump.name}</span>
+              </span>
+            )}
+          </span>
         </td>
-        <td className="py-2 text-xs text-fg-muted">
+        <td className="py-2 pl-3 text-xs text-fg-muted @max-3xl:hidden">
           {jump ? (
-            <span className="inline-flex items-center gap-1">
-              <Route className="h-3.5 w-3.5" />
-              {jump.name}
+            <span className="flex items-center gap-1">
+              <Route className="h-3.5 w-3.5 shrink-0" />
+              <span className="block max-w-[10rem] truncate" title={jump.name}>
+                {jump.name}
+              </span>
             </span>
           ) : (
             "—"
           )}
         </td>
-        <td className="py-2 text-xs text-fg-muted">{ago(s.lastConnectedAt)}</td>
-        <td className="w-32 py-2 pr-3">
+        <td className="py-2 pl-3 text-xs text-fg-muted @max-3xl:hidden">{ago(s.lastConnectedAt)}</td>
+        <td className="w-32 py-2 pl-3 pr-3">
           <div className="flex justify-end gap-0.5">
             <IconButton label="연결" tone="brand" onClick={() => connectServer(s)}>
               <Play className="h-4 w-4" />
@@ -226,50 +263,10 @@ export function ServersPage() {
       <PageHeader
         title="서버"
         description="고객사와 폴더별로 서버를 관리합니다. 행을 더블클릭하거나 ▶를 누르면 연결합니다."
-        actions={
-          <>
-            <DropdownButton
-              label="가져오기"
-              icon={<FileDown className="h-4 w-4" />}
-              options={[
-                {
-                  label: "SSH 설정에서 가져오기",
-                  description: "~/.ssh/config의 Host 항목을 서버로 추가",
-                  icon: <FileCode2 className="h-4 w-4" />,
-                  onSelect: () => setDialog({ kind: "importConfig" }),
-                },
-                {
-                  label: "백업 파일에서 가져오기",
-                  description: "DHost 백업(.dhost-backup)에서 복원",
-                  icon: <Archive className="h-4 w-4" />,
-                  onSelect: async () => {
-                    try {
-                      const picked = await pickBackup();
-                      if (picked) setDialog({ kind: "restore", ...picked });
-                    } catch (e) {
-                      setDialog({ kind: "error", message: String(e) });
-                    }
-                  },
-                },
-              ]}
-            />
-            <Button onClick={() => setDialog({ kind: "customer" })}>
-              <Building2 className="h-4 w-4" />
-              고객사 추가
-            </Button>
-            <Button onClick={() => setDialog({ kind: "quick" })}>
-              <Zap className="h-4 w-4" />
-              빠른 접속
-            </Button>
-            <Button variant="primary" onClick={() => setDialog({ kind: "server" })}>
-              <Plus className="h-4 w-4" />
-              서버 추가
-            </Button>
-          </>
-        }
       />
 
-      <div className="flex items-center gap-1.5 px-6 pb-3">
+      {/* 필터(왼쪽)와 작업 버튼(오른쪽)을 한 줄에 둔다. 창이 좁으면 버튼이 다음 줄로 내려간다. */}
+      <div className="@container flex flex-wrap items-center gap-x-1.5 gap-y-2 px-6 pb-3">
         {(
           [
             ["all", "전체"],
@@ -290,6 +287,71 @@ export function ServersPage() {
           </button>
         ))}
         {search && <span className="ml-2 text-xs text-fg-subtle">“{search}” 검색 결과 {visible.length}개</span>}
+
+        <div className="ml-auto flex flex-wrap justify-end gap-2">
+          {/* 이 줄의 폭이 850px 이하이면(앱 창 약 1100px 이하) 모든 버튼을 아이콘만 남기고, 마우스를 올리면 이름을 띄운다 */}
+          <HoverLabel text="내보내기" className={tipWhenCompact}>
+            <DropdownButton
+              label="내보내기"
+              labelClassName="@max-[850px]:hidden"
+              icon={<FileUp className="h-4 w-4" />}
+              options={[
+                {
+                  label: "백업 파일 내보내기",
+                  description: "서버 목록과 설정을 .dhost-backup 파일로 저장",
+                  icon: <Archive className="h-4 w-4" />,
+                  onSelect: () => setDialog({ kind: "export" }),
+                },
+              ]}
+            />
+          </HoverLabel>
+          <HoverLabel text="가져오기" className={tipWhenCompact}>
+            <DropdownButton
+              label="가져오기"
+              labelClassName="@max-[850px]:hidden"
+              icon={<FileDown className="h-4 w-4" />}
+              options={[
+                {
+                  label: "SSH 설정 가져오기",
+                  description: "~/.ssh/config의 Host 항목을 서버로 추가",
+                  icon: <FileCode2 className="h-4 w-4" />,
+                  onSelect: () => setDialog({ kind: "importConfig" }),
+                },
+                {
+                  label: "백업 파일 가져오기",
+                  description: ".dhost-backup 파일에서 서버 목록과 설정을 불러오기",
+                  icon: <Archive className="h-4 w-4" />,
+                  onSelect: async () => {
+                    try {
+                      const picked = await pickBackup();
+                      if (picked) setDialog({ kind: "restore", ...picked });
+                    } catch (e) {
+                      setDialog({ kind: "error", message: String(e) });
+                    }
+                  },
+                },
+              ]}
+            />
+          </HoverLabel>
+          <HoverLabel text="고객사 추가" className={tipWhenCompact}>
+            <Button onClick={() => setDialog({ kind: "customer" })} aria-label="고객사 추가">
+              <Building2 className="h-4 w-4" />
+              <span className="@max-[850px]:hidden">고객사 추가</span>
+            </Button>
+          </HoverLabel>
+          <HoverLabel text="빠른 접속" className={tipWhenCompact}>
+            <Button onClick={() => setDialog({ kind: "quick" })} aria-label="빠른 접속">
+              <Zap className="h-4 w-4" />
+              <span className="@max-[850px]:hidden">빠른 접속</span>
+            </Button>
+          </HoverLabel>
+          <HoverLabel text="서버 추가" className={tipWhenCompact}>
+            <Button variant="primary" onClick={() => setDialog({ kind: "server" })} aria-label="서버 추가">
+              <Plus className="h-4 w-4" />
+              <span className="@max-[850px]:hidden">서버 추가</span>
+            </Button>
+          </HoverLabel>
+        </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto px-6 pb-6">
@@ -311,15 +373,16 @@ export function ServersPage() {
             </div>
           </div>
         ) : (
-          <div className="overflow-hidden rounded-lg border border-line bg-surface">
-            <table className="w-full text-sm">
+          // 표 폭이 48rem보다 좁으면 경유·최근 접속 열을 숨기고 이름 아래 작은 글씨로 옮긴다 (컨테이너 쿼리).
+          <div className="@container overflow-hidden rounded-lg border border-line bg-surface">
+            <table className="w-full whitespace-nowrap text-sm">
               <thead>
                 <tr className="border-b border-line text-left text-xs font-medium text-fg-subtle">
-                  <th className="w-8 py-2 pl-3" />
+                  <th className="w-10 min-w-10 py-2 pl-3" />
                   <th className="py-2 font-medium">이름</th>
-                  <th className="py-2 font-medium">주소</th>
-                  <th className="py-2 font-medium">경유</th>
-                  <th className="py-2 font-medium">최근 접속</th>
+                  <th className="py-2 pl-3 font-medium">주소</th>
+                  <th className="py-2 pl-3 font-medium @max-3xl:hidden">경유</th>
+                  <th className="py-2 pl-3 font-medium @max-3xl:hidden">최근 접속</th>
                   <th className="py-2 pr-3" />
                 </tr>
               </thead>
@@ -424,6 +487,7 @@ export function ServersPage() {
       )}
       {dialog?.kind === "quick" && <QuickConnectDialog onClose={() => setDialog(null)} />}
       {dialog?.kind === "importConfig" && <SshConfigImportDialog onClose={() => setDialog(null)} />}
+      {dialog?.kind === "export" && <ExportDialog onClose={() => setDialog(null)} />}
       {dialog?.kind === "restore" && (
         <RestoreDialog path={dialog.path} preview={dialog.preview} onClose={() => setDialog(null)} />
       )}

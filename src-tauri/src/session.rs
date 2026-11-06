@@ -86,6 +86,11 @@ impl SessionManager {
         size: (u16, u16),
         mut output: OutputFn,
     ) -> AppResult<String> {
+        // 지정한 개인키 파일이 없으면 ssh는 경고만 하고 비밀번호로 넘어간다. 접속 전에 알린다.
+        req.target.check_identity_exists()?;
+        if let Some(j) = &req.jump {
+            j.check_identity_exists()?;
+        }
         let session_id = uuid::Uuid::new_v4().to_string();
         let token = uuid::Uuid::new_v4().to_string();
         let ctx = HelperContext {

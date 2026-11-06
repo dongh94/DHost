@@ -69,6 +69,7 @@ export function Field({ label, hint, children }: { label: string; hint?: string;
 
 export function Modal({
   title,
+  subtitle,
   onClose,
   children,
   footer,
@@ -76,6 +77,8 @@ export function Modal({
   tone,
 }: {
   title: string;
+  /** 제목 아래 작은 설명 (예: 어디서 가져오는지) */
+  subtitle?: ReactNode;
   onClose?: () => void;
   children: ReactNode;
   footer?: ReactNode;
@@ -100,6 +103,7 @@ export function Modal({
       >
         <div className="border-b border-line px-5 py-3.5">
           <h2 className={`text-base font-semibold ${tone === "danger" ? "text-red-600" : "text-fg"}`}>{title}</h2>
+          {subtitle && <p className="mt-0.5 text-xs text-fg-muted">{subtitle}</p>}
         </div>
         <div className="px-5 py-4">{children}</div>
         {footer && <div className="flex justify-end gap-2 border-t border-line bg-canvas px-5 py-3">{footer}</div>}
@@ -137,7 +141,18 @@ export interface MenuOption {
 }
 
 /** 버튼을 누르면 아래로 펼쳐지는 메뉴. 바깥을 누르거나 Esc를 누르면 닫힌다. */
-export function DropdownButton({ label, icon, options }: { label: string; icon?: ReactNode; options: MenuOption[] }) {
+export function DropdownButton({
+  label,
+  icon,
+  options,
+  labelClassName = "",
+}: {
+  label: string;
+  icon?: ReactNode;
+  options: MenuOption[];
+  /** 좁은 폭에서 글자를 숨길 때 쓰는 클래스 (아이콘은 남는다) */
+  labelClassName?: string;
+}) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -155,9 +170,9 @@ export function DropdownButton({ label, icon, options }: { label: string; icon?:
   }, [open]);
   return (
     <div ref={ref} className="relative">
-      <Button onClick={() => setOpen((v) => !v)} aria-haspopup="menu" aria-expanded={open}>
+      <Button onClick={() => setOpen((v) => !v)} aria-haspopup="menu" aria-expanded={open} aria-label={label}>
         {icon}
-        {label}
+        <span className={labelClassName}>{label}</span>
         <ChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-180" : ""}`} />
       </Button>
       {open && (
@@ -182,5 +197,24 @@ export function DropdownButton({ label, icon, options }: { label: string; icon?:
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * 마우스를 올리거나 키보드로 포커스하면 아래에 이름을 띄운다. 아이콘만 남은 버튼에 쓴다.
+ * 브라우저 기본 title 말풍선보다 빨리 뜨고 앱 디자인에 맞춘다. 펼침 메뉴가 열려 있으면 숨긴다.
+ * `className`으로 보일 조건을 줄 수 있다 (예: 글자가 보이는 넓은 폭에서는 숨김).
+ */
+export function HoverLabel({ text, className = "", children }: { text: string; className?: string; children: ReactNode }) {
+  return (
+    <span className="group/tip relative inline-flex">
+      {children}
+      <span
+        role="tooltip"
+        className={`pointer-events-none absolute left-1/2 top-full z-50 mt-1.5 -translate-x-1/2 whitespace-nowrap rounded-md bg-fg px-2 py-1 text-xs font-medium text-canvas opacity-0 shadow-lg transition-opacity group-hover/tip:opacity-100 group-hover/tip:delay-150 group-focus-within/tip:opacity-100 group-has-[[aria-expanded=true]]/tip:hidden ${className}`}
+      >
+        {text}
+      </span>
+    </span>
   );
 }

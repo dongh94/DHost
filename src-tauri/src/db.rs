@@ -84,6 +84,10 @@ const MIGRATIONS: &[&str] = &[
     r#"
     ALTER TABLE connection_history ADD COLUMN reason TEXT;
     "#,
+    // v5: 서버별 개인키 파일 경로 (키 내용은 저장하지 않음)
+    r#"
+    ALTER TABLE servers ADD COLUMN identity_file TEXT;
+    "#,
 ];
 
 impl Db {

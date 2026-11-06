@@ -12,6 +12,7 @@ export function StatusBar() {
   const connected = tabs.filter((t) => t.status === "connected").length;
   const update = useUpdate((s) => (s.status === "available" || s.status === "error" ? s.info : null));
   const openUpdate = useUpdate((s) => s.openDialog);
+  const version = useUpdate((s) => s.currentVersion);
 
   useEffect(() => {
     if (!isTauri()) {
@@ -41,6 +42,11 @@ export function StatusBar() {
       <span className={update ? "" : "ml-auto"}>
         세션 {connected}개 연결됨{tabs.length > connected ? ` · 끊김 ${tabs.length - connected}개` : ""}
       </span>
+      {version && (
+        <span className="border-l border-line pl-3 font-mono text-fg-subtle" title="DHost 버전">
+          v{version}
+        </span>
+      )}
     </footer>
   );
 }

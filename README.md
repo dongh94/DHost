@@ -35,7 +35,8 @@ SSH 엔진: 시스템 OpenSSH(`/usr/bin/ssh`, 8.5 이상)
 
 ```bash
 pnpm install
-pnpm tauri dev
+pnpm tauri dev      # 개발 서버 포트 1420
+pnpm app            # 같은 앱을 포트 1421로 (1420을 다른 개발 서버가 쓰고 있을 때)
 ```
 
 ### 브라우저에서 화면만 확인
