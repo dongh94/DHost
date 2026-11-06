@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { api } from "../lib/api";
-import { cancelAuth } from "../lib/connect";
+import { cancelAuth, closeTab, focusTerminal } from "../lib/connect";
+import { looksMisleading, openExternal, parseSafeUrl } from "../lib/links";
 import { useSessions } from "../stores/sessions";
 import { PasteDialog } from "./PasteDialog";
 
@@ -9,7 +10,29 @@ const btnGhost = `${btn} border border-line bg-surface text-fg hover:bg-muted`;
 const btnPrimary = `${btn} bg-brand-600 text-white hover:bg-brand-700`;
 const btnDanger = `${btn} bg-red-600 text-white hover:bg-red-500`;
 
-function Shell({ title, tone, children }: { title: string; tone?: "danger"; children: React.ReactNode }) {
+function Shell({
+  title,
+  tone,
+  onEscape,
+  children,
+}: {
+  title: string;
+  tone?: "danger";
+  /** Esc를 누르면 실행한다. 각 창의 취소 버튼과 같은 동작을 넘긴다. */
+  onEscape?: () => void;
+  children: React.ReactNode;
+}) {
+  useEffect(() => {
+    if (!onEscape) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      onEscape();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [onEscape]);
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <div
@@ -54,6 +77,102 @@ export function PromptDialog() {
     return <PasteDialog key={prompt.data.tabKey + prompt.data.text.length} {...prompt.data} onDone={shift} />;
   }
 
+  if (prompt.kind === "link") {
+    const p = prompt.data;
+    const url = parseSafeUrl(p.url);
+    const done = () => {
+      shift();
+      focusTerminal(p.tabKey);
+    };
+    if (!url) {
+      done();
+      return null;
+    }
+    const misleading = looksMisleading(p.shownText, url);
+    return (
+      <Shell title="원격 출력의 링크를 열까요?" tone={misleading ? "danger" : undefined} onEscape={done}>
+        <div className="space-y-3 text-sm">
+          <p className="text-fg-muted">서버가 출력한 링크입니다. 실제로 열릴 주소를 확인하세요.</p>
+          <div>
+            <div className="mb-1 text-xs text-fg-subtle">열릴 사이트</div>
+            <div className="font-mono text-base font-semibold text-fg">{url.host}</div>
+          </div>
+          <div>
+            <div className="mb-1 text-xs text-fg-subtle">전체 주소</div>
+            <code className="block max-h-24 overflow-auto break-all rounded bg-muted px-2 py-1.5 font-mono text-xs text-fg">
+              {url.href}
+            </code>
+          </div>
+          {misleading && (
+            <p className="rounded-md bg-red-50 px-3 py-2 text-red-700 dark:bg-red-950 dark:text-red-300">
+              화면에는 <b className="break-all">{p.shownText}</b>(으)로 보였지만 실제로는 다른 사이트로 연결됩니다.
+            </p>
+          )}
+          {url.protocol === "http:" && <p className="text-xs text-amber-600">암호화되지 않은 http 주소입니다.</p>}
+          <div className="flex justify-end gap-2 pt-1">
+            <button autoFocus className={btnGhost} onClick={done}>
+              취소
+            </button>
+            <button
+              className={btnGhost}
+              onClick={() => {
+                void navigator.clipboard?.writeText(url.href).catch(() => {});
+                done();
+              }}
+            >
+              주소 복사
+            </button>
+            <button
+              className={misleading ? btnDanger : btnPrimary}
+              onClick={() => {
+                void openExternal(url.href);
+                done();
+              }}
+            >
+              브라우저에서 열기
+            </button>
+          </div>
+        </div>
+      </Shell>
+    );
+  }
+
+  if (prompt.kind === "closeTab") {
+    const tab = useSessions.getState().tabs.find((t) => t.key === prompt.data.tabKey);
+    if (!tab) {
+      shift();
+      return null;
+    }
+    const cancel = () => {
+      shift();
+      focusTerminal(tab.key);
+    };
+    return (
+      <Shell title="연결을 끊고 탭을 닫을까요?" tone={tab.production ? "danger" : undefined} onEscape={cancel}>
+        <div className="space-y-3 text-sm">
+          <p>
+            <b>{tab.title}</b> 세션이 {tab.status === "connecting" ? "연결 중입니다" : "열려 있습니다"}. 탭을 닫으면
+            실행 중인 작업도 함께 끝납니다.
+          </p>
+          <div className="flex justify-end gap-2 pt-1">
+            <button autoFocus className={btnGhost} onClick={cancel}>
+              취소
+            </button>
+            <button
+              className={btnDanger}
+              onClick={() => {
+                shift();
+                closeTab(tab.key);
+              }}
+            >
+              닫기
+            </button>
+          </div>
+        </div>
+      </Shell>
+    );
+  }
+
   if (prompt.kind === "hostkey") {
     const p = prompt.data;
     const answer = (trust: boolean) => {
@@ -61,7 +180,7 @@ export function PromptDialog() {
       shift();
     };
     return (
-      <Shell title="처음 접속하는 서버입니다">
+      <Shell title="처음 접속하는 서버입니다" onEscape={() => answer(false)}>
         <div className="space-y-3 text-sm">
           <p>
             <b>{p.host}</b> 서버의 호스트 키를 아직 신뢰하지 않았습니다. 서버 관리자에게 받은 지문과 같은지
@@ -87,7 +206,7 @@ export function PromptDialog() {
   if (prompt.kind === "changed") {
     const p = prompt.data;
     return (
-      <Shell title="호스트 키가 바뀌어 연결을 차단했습니다" tone="danger">
+      <Shell title="호스트 키가 바뀌어 연결을 차단했습니다" tone="danger" onEscape={shift}>
         <div className="space-y-3 text-sm">
           <p>
             <b>{p.host}</b> 서버가 저장된 키와 다른 키를 보냈습니다. 서버를 재설치했을 수도 있지만, 중간에서
@@ -124,7 +243,7 @@ export function PromptDialog() {
 
   if (p.confirm) {
     return (
-      <Shell title="확인 필요">
+      <Shell title="확인 필요" onEscape={() => reply(null)}>
         <p className="mb-4 whitespace-pre-wrap text-sm">{p.prompt}</p>
         <div className="flex justify-end gap-2">
           <button autoFocus className={btnGhost} onClick={() => reply(null)}>
@@ -143,7 +262,7 @@ export function PromptDialog() {
     reply(secret);
   };
   return (
-    <Shell title="인증 정보 입력">
+    <Shell title="인증 정보 입력" onEscape={() => reply(null)}>
       <form onSubmit={submit} className="space-y-3 text-sm">
         {p.retry && (
           <p className="rounded-md bg-amber-50 px-3 py-2 text-amber-800 dark:bg-amber-950 dark:text-amber-200">

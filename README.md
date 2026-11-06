@@ -7,6 +7,17 @@
 - SSH 엔진 스파이크 결과: [docs/spike_ssh_engine.md](docs/spike_ssh_engine.md)
 - 정책 결정 기록: [docs/decisions.md](docs/decisions.md)
 
+## 단축키
+
+| 단축키 | 동작 |
+|---|---|
+| ⌘K, ⌘T | 서버 검색 (↑↓ 선택, Enter 접속) |
+| ⌘W | 탭 닫기 (연결 중이면 확인) |
+| ⌘R | 끊긴 탭 재접속 |
+| ⌘1~⌘8, ⌘9 | n번째 탭, 마지막 탭 |
+| ⌘⇧] / ⌘⇧[ | 다음 / 이전 탭 |
+| ⌘+클릭 | 터미널 속 링크 열기 (확인 창) |
+
 ## 기술 스택
 
 Tauri 2 · Rust · React 19 · TypeScript · Vite · Tailwind CSS 4 · xterm.js · Zustand

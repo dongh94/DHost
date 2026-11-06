@@ -449,3 +449,54 @@ fn diagnoses_wrong_password_and_skips_cancel() {
     assert_eq!(code, Some(255));
     assert!(last_diagnosis(&h).is_none(), "사용자가 취소한 건 오류로 보지 않는다");
 }
+
+/// 화면이 출력을 따라가지 못해 읽기를 멈추면 출력이 멈추고, 그동안에도 Ctrl+C가 전달된다 (GAP-05).
+#[test]
+#[ignore]
+fn flow_control_pauses_output_and_keeps_input() {
+    let h = Harness::new(temp_store("flow"), HostKeyPolicy::Trust);
+    let req = ConnectRequest { target: bastion(), jump: None, connect_timeout: None };
+    let total = Arc::new(Mutex::new(Vec::<u8>::new()));
+    let o = total.clone();
+    let id = h
+        .sessions
+        .open(&OpenSshEngine::new(), h.broker.clone(), req, SessionLabel { title: "flow".into(), ..Default::default() }, (120, 40), Box::new(move |b| {
+            o.lock().unwrap().extend_from_slice(b);
+            true
+        }))
+        .unwrap();
+    let len = || total.lock().unwrap().len();
+    let wait_for = |needle: &str| {
+        let start = Instant::now();
+        while !String::from_utf8_lossy(&total.lock().unwrap()).contains(needle) {
+            assert!(start.elapsed() < Duration::from_secs(20), "{needle} 대기 시간 초과");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    };
+    wait_for("$ ");
+
+    // 끝없이 출력하는 명령
+    h.sessions.write(&id, b"yes DHOST-FLOOD\n").unwrap();
+    std::thread::sleep(Duration::from_millis(500));
+    assert!(len() > 100_000, "대량 출력이 나와야 한다");
+
+    h.sessions.set_paused(&id, true).unwrap();
+    std::thread::sleep(Duration::from_millis(300)); // 이미 읽은 덩어리가 지나가길 기다린다
+    let paused_at = len();
+    std::thread::sleep(Duration::from_millis(1000));
+    assert!(len() - paused_at <= 32 * 1024, "멈춘 동안 출력이 거의 늘지 않아야 한다: {}", len() - paused_at);
+
+    // 멈춘 상태에서 Ctrl+C를 보내고 다시 연다.
+    h.sessions.write(&id, b"\x03").unwrap();
+    std::thread::sleep(Duration::from_millis(300));
+    h.sessions.set_paused(&id, false).unwrap();
+    h.sessions.write(&id, b"echo FLOW-DONE-$((40+2))\n").unwrap();
+    wait_for("FLOW-DONE-42");
+
+    h.sessions.close(&id).unwrap();
+    let start = Instant::now();
+    while h.exit_code(&id).is_none() {
+        assert!(start.elapsed() < Duration::from_secs(10), "닫히지 않음");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}

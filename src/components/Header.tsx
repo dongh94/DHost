@@ -1,24 +1,41 @@
 import { useEffect, useRef } from "react";
 import { Search } from "lucide-react";
+import { connectServer } from "../lib/connect";
+import { useCatalog } from "../stores/catalog";
 import { useUi } from "../stores/ui";
 
-/** 상단 바: 앱 이름과 전역 서버 검색 (⌘K) */
+/** 상단 바: 앱 이름과 전역 서버 검색 (⌘K). ↑↓로 고르고 Enter로 접속한다 (GAP-06). */
 export function Header() {
-  const { search, setSearch, setPage } = useUi();
+  const { search, setSearch, setPage, searchFocus, moveCursor } = useUi();
   const ref = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+    if (searchFocus === 0) return;
+    // 페이지 전환 직후에도 포커스가 가도록 한 프레임 미룬다.
+    requestAnimationFrame(() => {
+      ref.current?.focus();
+      ref.current?.select();
+    });
+  }, [searchFocus]);
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Escape") {
+      setSearch("");
+      ref.current?.blur();
+    } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      setPage("servers");
+      moveCursor(e.key === "ArrowDown" ? 1 : -1);
+    } else if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+      const { results, cursor } = useUi.getState();
+      const server = useCatalog.getState().servers.find((s) => s.id === results[cursor]);
+      if (server) {
         e.preventDefault();
-        setPage("servers");
-        ref.current?.focus();
-        ref.current?.select();
+        ref.current?.blur();
+        connectServer(server);
       }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [setPage]);
+    }
+  };
 
   return (
     <header className="flex h-12 shrink-0 items-center gap-4 border-b border-line bg-chrome px-4">
@@ -35,8 +52,8 @@ export function Header() {
             setSearch(e.target.value);
             setPage("servers");
           }}
-          onKeyDown={(e) => e.key === "Escape" && (setSearch(""), ref.current?.blur())}
-          placeholder="서버 이름, 주소, 고객사 검색"
+          onKeyDown={onKeyDown}
+          placeholder="서버 검색 — ↑↓ 선택, Enter 접속"
           className="w-full rounded-md border border-line bg-canvas py-1.5 pl-8 pr-12 text-sm text-fg placeholder:text-fg-subtle focus:border-brand-500 focus:bg-surface focus:outline-none"
         />
         <kbd className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded border border-line px-1.5 text-[10px] text-fg-subtle">

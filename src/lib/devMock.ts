@@ -117,9 +117,16 @@ export function installDevMock() {
           if (x) x.favorite = a.favorite as boolean;
           return null;
         }
-        case "server_connect":
-          // 화면 확인용: 세션 ID를 예측할 수 있게 한다 (예: mock-s2)
+        case "server_connect": {
+          // 화면 확인용: 링크가 섞인 가짜 출력 (GAP-04 확인)
+          const ch = a.onOutput as { onmessage?: (m: unknown) => void } | undefined;
+          const demo =
+            "Welcome (mock)\r\n문서: https://docs.example.com/guide\r\n" +
+            "\x1b]8;;https://evil.example.net/login\x07https://bank.example.com\x1b]8;;\x07 ← 속이는 링크\r\n$ ";
+          setTimeout(() => ch?.onmessage?.(Array.from(new TextEncoder().encode(demo))), 50);
+          // 세션 ID를 예측할 수 있게 한다 (예: mock-s2)
           return `mock-${a.serverId}`;
+        }
         case "session_open":
           return crypto.randomUUID();
         default:

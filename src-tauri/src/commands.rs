@@ -78,6 +78,12 @@ pub fn session_resize(state: State<'_, AppState>, session_id: String, cols: u16,
     state.sessions.resize(&session_id, cols, rows)
 }
 
+/// 화면이 출력을 따라가지 못하면 잠시 읽기를 멈춘다 (GAP-05).
+#[tauri::command]
+pub fn session_flow(state: State<'_, AppState>, session_id: String, paused: bool) -> AppResult<()> {
+    state.sessions.set_paused(&session_id, paused)
+}
+
 #[tauri::command]
 pub fn session_close(state: State<'_, AppState>, session_id: String) -> AppResult<()> {
     state.sessions.close(&session_id)

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Building2,
   ChevronDown,
@@ -108,6 +108,20 @@ export function ServersPage() {
       return next;
     });
 
+  // 화면에 보이는 순서대로 검색창 ↑↓ 선택 대상을 알린다 (GAP-06).
+  const ordered = groups.flatMap((g) =>
+    collapsed.has(g.id || "none")
+      ? []
+      : [...g.folders.flatMap((f) => (collapsed.has(f.id) ? [] : f.servers.map((s) => s.id))), ...g.loose.map((s) => s.id)],
+  );
+  const orderedKey = ordered.join(",");
+  const setResults = useUi((s) => s.setResults);
+  useEffect(() => setResults(orderedKey ? orderedKey.split(",") : []), [orderedKey, setResults]);
+  const selectedId = useUi((s) => (s.search.trim() ? s.results[s.cursor] : undefined));
+  useEffect(() => {
+    if (selectedId) document.getElementById(`server-row-${selectedId}`)?.scrollIntoView({ block: "nearest" });
+  }, [selectedId]);
+
   const counts = {
     all: servers.length,
     favorite: servers.filter((s) => s.favorite).length,
@@ -119,8 +133,12 @@ export function ServersPage() {
     return (
       <tr
         key={s.id}
+        id={`server-row-${s.id}`}
         onDoubleClick={() => connectServer(s)}
-        className="group border-b border-line last:border-0 hover:bg-canvas"
+        aria-selected={s.id === selectedId}
+        className={`group border-b border-line last:border-0 ${
+          s.id === selectedId ? "bg-brand-50 dark:bg-brand-950" : "hover:bg-canvas"
+        }`}
       >
         <td className="w-8 py-2 pl-3">
           <IconButton

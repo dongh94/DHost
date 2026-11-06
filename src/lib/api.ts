@@ -237,6 +237,7 @@ export const api = {
     invoke<string>("server_connect", { serverId, cols, rows, onOutput: channelOf(onOutput) }),
   sessionWrite: (sessionId: string, data: string) =>
     invoke<void>("session_write", { sessionId, data }),
+  sessionFlow: (sessionId: string, paused: boolean) => invoke<void>("session_flow", { sessionId, paused }),
   sessionResize: (sessionId: string, cols: number, rows: number) =>
     invoke<void>("session_resize", { sessionId, cols, rows }),
   sessionClose: (sessionId: string) => invoke<void>("session_close", { sessionId }),

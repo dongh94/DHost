@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
 use portable_pty::{native_pty_system, ChildKiller, MasterPty, PtySize};
@@ -22,6 +22,29 @@ struct Session {
     writer: Box<dyn Write + Send>,
     killer: Box<dyn ChildKiller + Send + Sync>,
     meta: Arc<SessionMeta>,
+    gate: Arc<Gate>,
+}
+
+/// 화면이 출력을 따라가지 못할 때 PTY 읽기를 잠시 멈춘다 (GAP-05).
+/// 읽기를 멈추면 ssh가 멈추고, 원격 서버도 TCP 흐름 제어로 기다린다. 입력(Ctrl+C 등)은 계속 보낼 수 있다.
+#[derive(Default)]
+struct Gate {
+    paused: Mutex<bool>,
+    cv: Condvar,
+}
+
+impl Gate {
+    fn set(&self, paused: bool) {
+        *self.paused.lock().unwrap() = paused;
+        self.cv.notify_all();
+    }
+
+    fn wait_open(&self) {
+        let mut p = self.paused.lock().unwrap();
+        while *p {
+            p = self.cv.wait(p).unwrap();
+        }
+    }
 }
 
 /// 원격 출력 바이트를 받는 콜백
@@ -124,9 +147,12 @@ impl SessionManager {
 
         // 원격 출력 -> 화면. 출력 내용은 저장하지 않고, 인증 실패 문구만 확인한다.
         let m = meta.clone();
+        let gate = Arc::new(Gate::default());
+        let g = gate.clone();
         std::thread::spawn(move || {
             let mut buf = [0u8; 16 * 1024];
             loop {
+                g.wait_open();
                 match reader.read(&mut buf) {
                     Ok(0) | Err(_) => break,
                     Ok(n) => {
@@ -149,8 +175,11 @@ impl SessionManager {
         let sink = self.sink.clone();
         let history = self.history.clone();
         let m = meta.clone();
+        let g = gate.clone();
         std::thread::spawn(move || {
             let code = child.wait().ok().map(|s| s.exit_code());
+            // 멈춘 읽기 스레드가 남은 출력을 비우고 끝나도록 연다.
+            g.set(false);
             sessions.lock().unwrap().remove(&sid);
             broker.unregister_session(&token);
             let result = {
@@ -191,7 +220,7 @@ impl SessionManager {
         self.sessions
             .lock()
             .unwrap()
-            .insert(session_id.clone(), Session { master: pair.master, writer, killer, meta });
+            .insert(session_id.clone(), Session { master: pair.master, writer, killer, meta, gate });
         Ok(session_id)
     }
 
@@ -209,10 +238,19 @@ impl SessionManager {
             .map_err(|e| AppError::Internal(e.to_string()))
     }
 
+    /// 화면 쪽 처리 대기량에 따라 출력 읽기를 멈추거나 다시 시작한다.
+    pub fn set_paused(&self, id: &str, paused: bool) -> AppResult<()> {
+        let sessions = self.sessions.lock().unwrap();
+        let s = sessions.get(id).ok_or_else(|| AppError::SessionNotFound(id.into()))?;
+        s.gate.set(paused);
+        Ok(())
+    }
+
     pub fn close(&self, id: &str) -> AppResult<()> {
         let mut sessions = self.sessions.lock().unwrap();
         if let Some(s) = sessions.get_mut(id) {
             s.meta.flags.lock().unwrap().closed_by_user = true;
+            s.gate.set(false);
             let _ = s.killer.kill();
         }
         Ok(())

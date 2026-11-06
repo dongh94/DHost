@@ -8,6 +8,7 @@ mod helper;
 pub mod history;
 pub mod hostkeys;
 pub mod ipc;
+mod menu;
 pub mod meta;
 pub mod profiles;
 pub mod secrets;
@@ -47,6 +48,9 @@ pub struct AppState {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
+        .menu(menu::build)
+        .on_menu_event(|app, event| menu::on_event(app, event.id().as_ref()))
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             let db = Db::open(&data_dir.join("dhost.db"))?;
@@ -76,6 +80,7 @@ pub fn run() {
             commands::session_open,
             commands::session_write,
             commands::session_resize,
+            commands::session_flow,
             commands::session_close,
             commands::answer_hostkey,
             commands::answer_askpass,

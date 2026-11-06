@@ -12,6 +12,7 @@ pub fn validate(key: &str, value: &str) -> AppResult<()> {
     let ok = match key {
         "theme" => matches!(value, "system" | "light" | "dark"),
         "terminal.fontSize" => value.parse::<u8>().map(|n| (10..=24).contains(&n)).unwrap_or(false),
+        "terminal.scrollback" => value.parse::<u32>().map(|n| (1_000..=50_000).contains(&n)).unwrap_or(false),
         "ssh.connectTimeout" => value.parse::<u32>().map(|n| (5..=120).contains(&n)).unwrap_or(false),
         _ => return Err(AppError::InvalidInput(format!("알 수 없는 설정입니다: {key}"))),
     };
@@ -39,7 +40,6 @@ pub fn set(db: &Db, key: &str, value: &str) -> AppResult<()> {
     Ok(())
 }
 
-/// 설정만 기본값으로 되돌린다. 서버 목록과 호스트 키는 그대로 둔다.
 /// 연결 시간 제한(초). 설정이 없으면 15초.
 pub fn connect_timeout(db: &Db) -> u32 {
     get_all(db)
@@ -48,6 +48,7 @@ pub fn connect_timeout(db: &Db) -> u32 {
         .unwrap_or(15)
 }
 
+/// 설정만 기본값으로 되돌린다. 서버 목록과 호스트 키는 그대로 둔다.
 pub fn reset(db: &Db) -> AppResult<()> {
     db.with(|c| c.execute("DELETE FROM settings", []))?;
     Ok(())
@@ -69,6 +70,8 @@ mod tests {
         assert!(set(&db, "theme", "purple").is_err());
         assert!(set(&db, "terminal.fontSize", "99").is_err());
         assert!(set(&db, "password", "x").is_err());
+        set(&db, "terminal.scrollback", "10000").unwrap();
+        assert!(set(&db, "terminal.scrollback", "999999").is_err());
         reset(&db).unwrap();
         assert!(get_all(&db).unwrap().is_empty());
         let _ = std::fs::remove_file(&p);

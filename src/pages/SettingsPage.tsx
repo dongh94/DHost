@@ -24,7 +24,7 @@ function Section({ title, description, children }: { title: string; description:
 }
 
 export function SettingsPage() {
-  const { theme, setTheme, fontSize, setFontSize, connectTimeout, setConnectTimeout, reset } = useSettings();
+  const { theme, setTheme, fontSize, setFontSize, connectTimeout, setConnectTimeout, scrollback, setScrollback, reset } = useSettings();
   const [confirmReset, setConfirmReset] = useState(false);
 
   return (
@@ -61,6 +61,24 @@ export function SettingsPage() {
               <span className="w-10 text-right font-mono text-sm text-fg">{fontSize}px</span>
             </div>
           </Section>
+          <Section
+            title="스크롤 보관 줄 수"
+            description="탭마다 이만큼만 이전 출력을 보관합니다. 늘리면 오래된 출력을 더 볼 수 있지만 메모리를 더 씁니다. 새 탭부터 적용됩니다."
+          >
+            <div className="flex items-center gap-3">
+              <select
+                value={scrollback}
+                onChange={(e) => setScrollback(Number(e.target.value))}
+                className="rounded-md border border-line bg-surface px-2 py-1.5 text-sm text-fg"
+              >
+                {[1000, 5000, 10000, 20000, 50000].map((n) => (
+                  <option key={n} value={n}>
+                    {n.toLocaleString()}줄
+                  </option>
+                ))}
+              </select>
+            </div>
+          </Section>
           <Section title="연결 시간 제한" description="서버(또는 경유 서버)가 이 시간 안에 응답하지 않으면 실패로 처리합니다.">
             <div className="flex items-center gap-3">
               <input
@@ -91,7 +109,7 @@ export function SettingsPage() {
       {confirmReset && (
         <ConfirmDialog
           title="설정 초기화"
-          message="테마, 터미널 글자 크기, 연결 시간 제한을 기본값으로 되돌립니다."
+          message="테마, 터미널 글자 크기, 스크롤 보관 줄 수, 연결 시간 제한을 기본값으로 되돌립니다."
           confirmLabel="초기화"
           onClose={() => setConfirmReset(false)}
           onConfirm={reset}

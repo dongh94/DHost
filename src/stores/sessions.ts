@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { AskpassPrompt, ConnectRequest, Diagnosis, HostKeyChanged, HostKeyPrompt } from "../lib/api";
 import type { PasteAnalysis } from "../lib/paste";
+import type { LinkRequest } from "../lib/links";
 
 export type SessionStatus = "connecting" | "connected" | "closed";
 
@@ -28,7 +29,9 @@ export type Prompt =
   | { kind: "hostkey"; data: HostKeyPrompt }
   | { kind: "changed"; data: HostKeyChanged }
   | { kind: "askpass"; data: AskpassPrompt }
-  | { kind: "paste"; data: { tabKey: string; text: string; analysis: PasteAnalysis } };
+  | { kind: "paste"; data: { tabKey: string; text: string; analysis: PasteAnalysis } }
+  | { kind: "link"; data: LinkRequest }
+  | { kind: "closeTab"; data: { tabKey: string } };
 
 interface SessionsState {
   tabs: SessionTab[];

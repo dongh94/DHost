@@ -1,5 +1,5 @@
-import { RotateCw, ShieldAlert, SquareTerminal, X } from "lucide-react";
-import { closeTab, reconnect } from "../lib/connect";
+import { Eraser, RotateCw, ShieldAlert, SquareTerminal, X } from "lucide-react";
+import { closeTab, reconnect, resetTerminal } from "../lib/connect";
 import { useSessions, type SessionStatus } from "../stores/sessions";
 import { useUi } from "../stores/ui";
 import { Button } from "../components/ui";
@@ -41,11 +41,11 @@ export function SessionsPage({ visible }: { visible: boolean }) {
         <>
           <div className="flex h-10 shrink-0 items-stretch border-b border-line bg-chrome">
             <div className="flex min-w-0 flex-1 overflow-x-auto">
-              {tabs.map((t) => (
+              {tabs.map((t, i) => (
                 <div
                   key={t.key}
                   onClick={() => setActive(t.key)}
-                  title={t.subtitle}
+                  title={`${t.subtitle}${i < 8 ? ` · ⌘${i + 1}` : ""}`}
                   className={`group relative flex max-w-64 shrink-0 cursor-default items-center gap-2 border-r border-line px-3 text-sm ${
                     t.key === activeKey ? "bg-surface text-fg" : "text-fg-muted hover:bg-muted"
                   }`}
@@ -92,9 +92,18 @@ export function SessionsPage({ visible }: { visible: boolean }) {
                 {statusLabel[active.status]}
                 {active.status === "closed" && active.exitCode !== null ? ` (코드 ${active.exitCode})` : ""}
               </span>
+              <button
+                onClick={() => resetTerminal(active.key)}
+                title="원격 출력 때문에 글자가 깨지거나 화면이 이상할 때 터미널을 처음 상태로 되돌립니다. 연결은 유지됩니다."
+                className="flex items-center gap-1 rounded px-2 py-0.5 hover:bg-muted hover:text-fg"
+              >
+                <Eraser className="h-3.5 w-3.5" />
+                화면 초기화
+              </button>
               {active.status === "closed" && (
                 <button
                   onClick={() => reconnect(active.key)}
+                  title="재접속 (⌘R)"
                   className="flex items-center gap-1 rounded px-2 py-0.5 font-medium text-brand-600 hover:bg-brand-50 dark:text-brand-300 dark:hover:bg-brand-950"
                 >
                   <RotateCw className="h-3.5 w-3.5" />

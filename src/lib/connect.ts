@@ -33,7 +33,8 @@ export function quickConnect(request: ConnectRequest) {
 
 function openTab(meta: { title: string; subtitle: string; source: SessionSource; production: boolean }) {
   const key = crypto.randomUUID();
-  const entry = createTerminal(key, resolveTheme(), useSettings.getState().fontSize);
+  const { fontSize, scrollback } = useSettings.getState();
+  const entry = createTerminal(key, resolveTheme(), fontSize, scrollback);
 
   // 입력과 크기 변경은 현재 연결된 백엔드 세션으로 보낸다.
   entry.term.onData((data) => {
@@ -90,6 +91,17 @@ export function cancelAuth(sessionId: string) {
   void api.sessionClose(sessionId);
 }
 
+/** 원격 출력이 화면 상태를 망가뜨렸을 때(바이너리 출력 등) 터미널을 처음 상태로 되돌린다. 세션은 유지된다. */
+export function resetTerminal(key: string) {
+  const entry = getTerminal(key);
+  if (!entry) return;
+  entry.term.reset();
+  entry.term.focus();
+  const tab = findTab(key);
+  // 셸이 프롬프트를 다시 그리도록 Ctrl+L을 보낸다.
+  if (tab?.sessionId && tab.status === "connected") void api.sessionWrite(tab.sessionId, "\x0c");
+}
+
 export function focusTerminal(key: string) {
   getTerminal(key)?.term.focus();
 }
@@ -142,7 +154,7 @@ async function start(key: string) {
     useSessions.getState().updateTab(key, { status: "closed" });
     return;
   }
-  const write = (bytes: Uint8Array) => entry.term.write(bytes);
+  const write = flowControlledWriter(key, entry.term);
   try {
     const { cols, rows } = entry.term;
     const sessionId =
@@ -164,6 +176,37 @@ async function start(key: string) {
     entry.term.write(`\r\n\x1b[31m연결할 수 없습니다: ${String(e)}\x1b[0m\r\n`);
     useSessions.getState().updateTab(key, { status: "closed" });
   }
+}
+
+/** 화면 처리 대기량이 이만큼 쌓이면 출력 읽기를 멈추고, 아래로 내려가면 다시 연다 (GAP-05). */
+const HIGH_WATER = 512 * 1024;
+const LOW_WATER = 64 * 1024;
+
+/**
+ * 대량 출력(`yes`, 큰 로그 cat 등)에서 xterm 처리 대기열이 끝없이 커져 화면이 멈추는 것을 막는다.
+ * 대기량이 HIGH_WATER를 넘으면 백엔드에 읽기 중지를 요청하고, xterm이 따라잡으면 다시 연다.
+ * 읽기를 멈춰도 입력은 계속 보낼 수 있어 Ctrl+C로 바로 멈출 수 있다.
+ */
+function flowControlledWriter(key: string, term: { write: (d: Uint8Array, cb?: () => void) => void }) {
+  let pending = 0;
+  let pausedSession: string | null = null;
+  return (bytes: Uint8Array) => {
+    pending += bytes.length;
+    term.write(bytes, () => {
+      pending -= bytes.length;
+      if (pausedSession && pending <= LOW_WATER) {
+        void api.sessionFlow(pausedSession, false).catch(() => {});
+        pausedSession = null;
+      }
+    });
+    if (!pausedSession && pending > HIGH_WATER) {
+      const sid = findTab(key)?.sessionId;
+      if (sid) {
+        pausedSession = sid;
+        void api.sessionFlow(sid, true).catch(() => {});
+      }
+    }
+  };
 }
 
 function findTab(key: string) {
