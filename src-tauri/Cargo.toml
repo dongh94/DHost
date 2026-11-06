@@ -1,6 +1,6 @@
 [package]
 name = "dhost"
-version = "0.1.0"
+version = "0.2.0"
 description = "DHost - SSH desktop client"
 authors = ["dongh94"]
 edition = "2024"
