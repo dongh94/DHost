@@ -151,6 +151,34 @@ export interface ConfigEntry {
   forced: boolean;
 }
 
+export interface BackupPreview {
+  exportedAt: number;
+  appVersion: string;
+  customers: number;
+  folders: number;
+  servers: number;
+  productionServers: number;
+  hostKeys: number;
+  settings: number;
+  duplicates: number;
+  problems: string[];
+}
+
+export interface RestoreOptions {
+  mode: "merge" | "replace";
+  hostKeys: boolean;
+  settings: boolean;
+}
+
+export interface RestoreReport {
+  customers: number;
+  folders: number;
+  servers: number;
+  hostKeys: number;
+  settings: number;
+  skipped: string[];
+}
+
 function channelOf(onOutput: (bytes: Uint8Array) => void) {
   const channel = new Channel<unknown>();
   channel.onmessage = (msg) => onOutput(toBytes(msg));
@@ -195,6 +223,10 @@ export const api = {
   sshConfigScan: () => invoke<ConfigCandidate[]>("ssh_config_scan"),
   sshConfigImport: (items: ConfigCandidate[], customerId: string | null) =>
     invoke<ImportSummary>("ssh_config_import", { items, customerId }),
+  backupExport: (path: string, includeHostKeys: boolean) =>
+    invoke<number>("backup_export", { path, includeHostKeys }),
+  backupPreview: (path: string) => invoke<BackupPreview>("backup_preview", { path }),
+  backupRestore: (path: string, options: RestoreOptions) => invoke<RestoreReport>("backup_restore", { path, options }),
   serverEffectiveConfig: (id: string) => invoke<ConfigEntry[]>("server_effective_config", { id }),
 
   catalog: () => invoke<Catalog>("catalog"),

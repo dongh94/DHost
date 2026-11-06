@@ -3,6 +3,7 @@ import { Monitor, Moon, RotateCcw, Sun } from "lucide-react";
 import { useSettings, type ThemeMode } from "../stores/settings";
 import { Button, PageHeader } from "../components/ui";
 import { ConfirmDialog } from "../components/dialogs";
+import { BackupSection } from "../components/BackupSection";
 
 const themes: { value: ThemeMode; label: string; icon: React.ReactNode }[] = [
   { value: "system", label: "시스템", icon: <Monitor className="h-4 w-4" /> },
@@ -29,7 +30,7 @@ export function SettingsPage() {
   return (
     <div className="flex h-full flex-col">
       <PageHeader title="설정" description="설정은 이 Mac에 저장됩니다. 바꿔도 열린 세션은 끊기지 않습니다." />
-      <div className="space-y-4 px-6 pb-6">
+      <div className="min-h-0 flex-1 space-y-4 overflow-auto px-6 pb-6">
         <div className="rounded-lg border border-line bg-surface">
           <Section title="테마" description="시스템 설정을 따르거나 직접 고를 수 있습니다.">
             <div className="inline-flex rounded-md border border-line p-0.5">
@@ -61,6 +62,8 @@ export function SettingsPage() {
             </div>
           </Section>
         </div>
+
+        <BackupSection />
 
         <div className="rounded-lg border border-line bg-surface">
           <Section title="설정 초기화" description="설정만 기본값으로 되돌립니다. 서버 목록과 호스트 키는 그대로 남습니다.">

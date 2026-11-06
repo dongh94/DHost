@@ -8,7 +8,7 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig(() => ({
   plugins: [react(), tailwindcss()],
   // 개발용 가짜 백엔드(?mock)가 쓰는 모듈. 미리 묶어 두지 않으면 처음 쓸 때 "Outdated Optimize Dep" 오류가 난다.
-  optimizeDeps: { include: ["@tauri-apps/api/mocks"] },
+  optimizeDeps: { include: ["@tauri-apps/api/mocks", "@tauri-apps/plugin-dialog"] },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //

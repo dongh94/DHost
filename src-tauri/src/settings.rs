@@ -8,7 +8,7 @@ use crate::db::Db;
 use crate::error::{AppError, AppResult};
 
 /// 저장할 수 있는 설정과 허용 값
-fn validate(key: &str, value: &str) -> AppResult<()> {
+pub fn validate(key: &str, value: &str) -> AppResult<()> {
     let ok = match key {
         "theme" => matches!(value, "system" | "light" | "dark"),
         "terminal.fontSize" => value.parse::<u8>().map(|n| (10..=24).contains(&n)).unwrap_or(false),

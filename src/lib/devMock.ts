@@ -84,6 +84,27 @@ export function installDevMock() {
             { key: "proxycommand", value: "/usr/bin/ssh ... -W [%h]:%p -- 'bastion.example.com'", forced: true },
             { key: "ciphers", value: "chacha20-poly1305@openssh.com,aes128-ctr", forced: false },
           ];
+        case "plugin:dialog|save":
+          return "/Users/me/Documents/DHost-20261106.dhost-backup";
+        case "plugin:dialog|open":
+          return "/Users/me/Documents/DHost-20261101.dhost-backup";
+        case "backup_export":
+          return catalog.servers.length;
+        case "backup_preview":
+          return {
+            exportedAt: now - 86400 * 5,
+            appVersion: "0.1.0",
+            customers: 2,
+            folders: 3,
+            servers: 7,
+            productionServers: 3,
+            hostKeys: 4,
+            settings: 2,
+            duplicates: 5,
+            problems: ["서버 'legacy-01': 호스트 이름이 올바르지 않습니다: -oProxyCommand=x", "호스트 키 'old.example.com': 지문이 키와 맞지 않아 가져오지 않습니다"],
+          };
+        case "backup_restore":
+          return { customers: 0, folders: 1, servers: 2, hostKeys: 3, settings: 2, skipped: ["서버 'bastion': 같은 서버가 이미 있습니다"] };
         case "server_password_saved":
           return a.id === "s1";
         case "settings_get":

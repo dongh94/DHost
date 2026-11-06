@@ -282,3 +282,32 @@ pub fn server_effective_config(state: State<'_, AppState>, id: String) -> AppRes
     };
     state.engine.effective_config(&request, &ctx)
 }
+
+/// 백업 파일을 만든다. 비밀번호·개인키·접속 이력은 넣지 않는다.
+#[tauri::command]
+pub fn backup_export(state: State<'_, AppState>, path: String, include_host_keys: bool) -> AppResult<usize> {
+    let data = crate::backup::export(&state.db, std::path::Path::new(&path), include_host_keys)?;
+    Ok(data.servers.len())
+}
+
+#[tauri::command]
+pub fn backup_preview(state: State<'_, AppState>, path: String) -> AppResult<crate::backup::Preview> {
+    let data = crate::backup::read(std::path::Path::new(&path))?;
+    crate::backup::preview(&state.db, &data)
+}
+
+/// 백업에서 복원한다. 자동으로 접속하지 않는다.
+#[tauri::command]
+pub fn backup_restore(
+    state: State<'_, AppState>,
+    path: String,
+    options: crate::backup::RestoreOptions,
+) -> AppResult<crate::backup::RestoreReport> {
+    let data = crate::backup::read(std::path::Path::new(&path))?;
+    let report = crate::backup::restore(&state.db, &data, &options)?;
+    // 교체로 지운 서버의 비밀번호는 키체인에서도 지운다.
+    for id in &report.removed_server_ids {
+        state.secrets.delete(id);
+    }
+    Ok(report)
+}

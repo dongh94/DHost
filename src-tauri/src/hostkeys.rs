@@ -48,6 +48,11 @@ impl HostKeyStore {
         Self { db }
     }
 
+    /// 백업처럼 잠깐 읽기만 할 때
+    pub fn new_for(db: &Db) -> HostKeyReader<'_> {
+        HostKeyReader { db }
+    }
+
     pub fn find(&self, host: &str) -> AppResult<Vec<HostKey>> {
         self.db.with(|c| {
             let mut st = c.prepare(&format!("SELECT {COLUMNS} FROM host_keys WHERE host = ?1"))?;
@@ -98,5 +103,18 @@ impl HostKeyStore {
             }
             let _ = std::fs::remove_file(path);
         }
+    }
+}
+
+pub struct HostKeyReader<'a> {
+    db: &'a Db,
+}
+
+impl HostKeyReader<'_> {
+    pub fn list(&self) -> AppResult<Vec<HostKey>> {
+        self.db.with(|c| {
+            let mut st = c.prepare(&format!("SELECT {COLUMNS} FROM host_keys ORDER BY host"))?;
+            st.query_map([], row)?.collect()
+        })
     }
 }

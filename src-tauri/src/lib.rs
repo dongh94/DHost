@@ -1,3 +1,4 @@
+pub mod backup;
 mod commands;
 pub mod db;
 pub mod error;
@@ -44,6 +45,7 @@ pub struct AppState {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             let db = Db::open(&data_dir.join("dhost.db"))?;
@@ -102,6 +104,9 @@ pub fn run() {
             commands::ssh_config_scan,
             commands::ssh_config_import,
             commands::server_effective_config,
+            commands::backup_export,
+            commands::backup_preview,
+            commands::backup_restore,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
